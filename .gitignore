@@ -1,0 +1,28 @@
+# 数据文件（体积大，从 Kaggle 下载，不纳入版本控制）
+data/*.csv
+
+# 抓取缓存与监控快照（运行时产物）
+data/cache/
+data/snapshots/
+
+# uv / Python 虚拟环境
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# 分析产出（可选：若想保留示例图表，注释掉下一行）
+outputs/*.png
+
+# 密钥与环境变量（API key 绝不入库）
+.env
+*.key
+
+# 训练好的模型权重（运行时产物，可由 train_sentiment.py 重新生成）
+*.joblib
+
+# 系统
+.DS_Store
+.idea/
+.vscode/
