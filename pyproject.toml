@@ -1,7 +1,7 @@
 [project]
 name = "genshin-sentiment-analysis"
 version = "0.1.0"
-description = "原神 B 站玩家生态与舆情分析 —— 基于公开数据的端到端数据分析项目"
+description = "原神 B 站玩家生态与舆情分析 —— 端到端数据分析项目"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -26,20 +26,14 @@ llm = [
     "python-dotenv>=1.0",
 ]
 # 可选依赖：生成展示用的词云图（scripts/make_wordcloud.py）
-# 含 llm extra，使 --source ai 的 AI 打标词云开箱即用
 report = [
     "wordcloud>=1.9",
     "jieba>=0.42",
-    "genshin-sentiment-analysis[llm]",
 ]
 # 可选依赖：内部工具看板（dashboard.py）
 dashboard = [
     "streamlit>=1.30",
     "altair>=5.0",
-]
-# 可选依赖：竞品/榜单数据抓取（src/scraper）
-scrape = [
-    "requests>=2.31",
 ]
 # 开发工具
 dev = [
