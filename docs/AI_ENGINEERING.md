@@ -64,11 +64,11 @@
 - **异步语料构建**：把评论聚类关键词、官方动态正文、高赞 UGC 评论切块并发嵌入，构建「梗 & 设定词典」（`src/rag/ingestion.py`）。
 - **无侵入注入**：`analyze_comments(..., retriever=)` 在送 LLM 前拦截评论中的黑话、检索释义并注入 system prompt；不传 `retriever` 时与原链路行为完全一致（`text_pipeline.detect_jargon` / `build_jargon_context`）。
 
-## 12. 本地 LLM LoRA 微调（QLoRA · eGPU 显存优化）
+## 12. 本地 LLM LoRA 微调（QLoRA）
 
 - **与蒸馏并行的「重」轨道**：把 LLM 标注的高置信数据进一步微调进轻量本地大模型（Qwen2.5-7B），得到比 TF-IDF 更懂语义/黑话、仍离线免 API 的分类器（`src/sentiment_train.LocalLLMClassifier`）。
 - **严格数据契约**：从 `outputs/ai_analysis.csv` 筛高置信样本（合法标签 + 非空依据 + 最小长度），转 LLaMA-Factory alpaca JSONL 并生成 `dataset_info.json`（`src/finetune/dataset_formatter.py`）。
-- **显存优先的训练配置**：针对雷电/Oculink 外接 eGPU，集成 4-bit 量化（QLoRA）、梯度检查点、FlashAttention-2、`per_device_train_batch_size=1` + 梯度累积、分页 8-bit 优化器、单卡固定（`src/finetune/train_lora.sh`）。
+- **高效训练配置**：在消费级 GPU（如 RTX 4090, 24GB）上集成 4-bit 量化（QLoRA）、FlashAttention-2、梯度累积、分页 8-bit 优化器（`src/finetune/train_lora.sh`）；配套 `scripts/build_finetune_dataset.py` 做分层抽样标注、`scripts/eval_lora.py` 做留出集评估与反讽错例分析，形成评估-迭代闭环。
 - **延迟导入与优雅缺省**：`torch`/`transformers`/`peft` 等重依赖延迟到 `load()` 时导入，`deps_available()` / `is_ready()` 守卫；依赖或适配器缺失时看板给出明确引导而非静默失败——CI 无 GPU 也不受影响。
 
 ## 13. 智能路由 / 多轨道编排 Agent（Router + 检索-推理-校验三角）
@@ -92,5 +92,5 @@
 | 数据驱动选型（覆盖率论证） | `scripts/keyword_vs_ai.py` |
 | 检索增强（RAG）：向量库 / 嵌入 / 混合检索 / 异步入库 | `src/rag/`（`vector_store.py`, `embeddings.py`, `retriever.py`, `ingestion.py`） |
 | RAG 黑话拦截与上下文注入 | `text_pipeline.detect_jargon` / `build_jargon_context` |
-| 本地 LoRA 微调（QLoRA·eGPU）+ 数据格式化 | `src/finetune/`（`dataset_formatter.py`, `train_lora.sh`）, `sentiment_train.LocalLLMClassifier` |
+| 本地 LoRA 微调（QLoRA）+ 数据集构建/评估 | `src/finetune/`（`dataset_formatter.py`, `evaluate.py`, `train_lora.sh`）, `scripts/build_finetune_dataset.py`, `scripts/eval_lora.py` |
 | 智能路由 / 多轨道编排（Router + 检索-推理-校验三角 + 成本阶梯升档） | `src/agents/`（`router.py`, `tracks.py`, `verifier.py`） |

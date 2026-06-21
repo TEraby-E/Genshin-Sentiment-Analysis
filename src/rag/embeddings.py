@@ -4,7 +4,7 @@
 - HashingEmbedding：纯 numpy 的特征哈希嵌入，零依赖、确定性、毫秒级，
   默认档位——保证无 GPU / 无外网的 CI 与本机也能跑通整条 RAG 链路；
 - SentenceTransformerEmbedding：可选的语义嵌入（延迟导入，属 rag extra），
-  检索质量更高，配好 eGPU 时启用。
+  检索质量更高，配好 GPU 时启用。
 
 EmbeddingFunction 是一个最小协议（只需可调用），因此测试里可直接注入「假嵌入」。
 """

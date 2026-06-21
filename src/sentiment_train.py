@@ -128,7 +128,7 @@ DEFAULT_LORA_DIR = config.LORA_ADAPTER_DIR
 class LocalLLMClassifier:
     """加载本地微调大模型（基座 + LoRA 适配器）做情感分类，离线、免 API。
 
-    与 TF-IDF 蒸馏并行的「重」轨道：更懂语义与黑话，代价是需要 eGPU 显存。
+    与 TF-IDF 蒸馏并行的「重」轨道：更懂语义与黑话，代价是需要本地 GPU 显存。
     一切重依赖（transformers/peft/torch）延迟到 load() 时导入，未安装也不影响
     本模块其余功能与 CI（属可选 finetune extra）。
     """

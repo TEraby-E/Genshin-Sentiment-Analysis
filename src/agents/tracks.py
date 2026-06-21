@@ -95,7 +95,7 @@ class DistilledTrack:
 
 
 class LoRATrack:
-    """本地微调大模型轨道：Qwen2.5 + LoRA，离线、免 API，需 eGPU 与适配器就绪。"""
+    """本地微调大模型轨道：Qwen2.5 + LoRA，离线、免 API，需本地 GPU 与适配器就绪。"""
 
     name = "lora"
     cost = 2
@@ -242,7 +242,7 @@ def build_default_tracks(
         tracks.append(CloudLoRATrack(client=served_client, retriever=retriever))
     except Exception as e:  # noqa: BLE001 - 构造失败不阻塞其余轨道
         logger.info("云端 LoRA 轨道不可用，跳过：%s", e)
-    # 进程内 LoRA（需本地 eGPU + 适配器）
+    # 进程内 LoRA（需本地 GPU + 适配器）
     try:
         tracks.append(LoRATrack(lora_adapter))
     except Exception as e:  # noqa: BLE001 - 缺 finetune 依赖时不阻塞其余轨道

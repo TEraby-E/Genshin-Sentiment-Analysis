@@ -1,6 +1,6 @@
 {
   "genshin_sentiment": {
-    "file_name": "genshin_sentiment.jsonl",
+    "file_name": "train.jsonl",
     "columns": {
       "prompt": "instruction",
       "query": "input",

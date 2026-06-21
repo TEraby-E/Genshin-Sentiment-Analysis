@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# eGPU 优化的 QLoRA 微调模板（LLaMA-Factory）
+# QLoRA 微调模板（LLaMA-Factory）
 #
-# 适配场景：笔记本 + 雷电/Oculink 外接 eGPU。带宽与显存都受限，因此一切以
-# 「省显存、可跑通」为最高优先级，宁可慢也不 OOM。
+# 适配场景：消费级 GPU（如 RTX 4090, 24GB）。7B + 4-bit QLoRA 显存充裕，
+# 配置以稳定可跑、训练高效为先。
 #
 # 前置：
 #   1) pip install "llamafactory[torch,metrics]"  flash-attn  bitsandbytes
@@ -27,7 +27,7 @@ MODEL="${MODEL:-${LORA_BASE_MODEL:-Qwen/Qwen2.5-7B-Instruct}}"
 DATASET="${DATASET:-genshin_sentiment}"
 DATASET_DIR="${DATASET_DIR:-outputs/finetune}"
 OUTPUT_DIR="${OUTPUT_DIR:-${LORA_ADAPTER_DIR:-outputs/finetune/qwen2.5-7b-lora}}"
-# eGPU 单卡：限定可见卡，避免 LLaMA-Factory 误起多卡 NCCL（雷电带宽下多卡反而更慢）。
+# 默认单卡训练：限定可见卡，避免 LLaMA-Factory 误起多卡 NCCL。
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 # FlashAttention：默认 fa2（需 pip install flash-attn）；装不上就 FLASH_ATTN=auto 自动退回。
 FLASH_ATTN="${FLASH_ATTN:-fa2}"
@@ -44,13 +44,13 @@ llamafactory-cli train \
     --lora_rank 8 \
     --lora_alpha 16 \
     --lora_dropout 0.05 \
-    `# ---- 显存优化（eGPU 关键项）---- ` \
+    `# ---- 效率设置（4-bit 量化 / FA2 / 24GB 适配的批大小）---- ` \
     --quantization_bit 4 \
     --quantization_method bnb \
     --flash_attn "${FLASH_ATTN}" \
     --gradient_checkpointing true \
-    --per_device_train_batch_size 1 \
-    --gradient_accumulation_steps 16 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 8 \
     --cutoff_len 1024 \
     --bf16 true \
     --optim paged_adamw_8bit \

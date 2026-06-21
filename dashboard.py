@@ -177,7 +177,7 @@ with tab_tag:
         from src import sentiment_train
 
         st.caption(
-            "用 LLaMA-Factory QLoRA 在 eGPU 上微调的本地大模型（Qwen2.5 + LoRA），"
+            "用 LLaMA-Factory QLoRA 微调的本地大模型（Qwen2.5 + LoRA），"
             "比蒸馏分类器更懂语义与社区黑话，离线、免 API。"
         )
         clf = sentiment_train.LocalLLMClassifier()

@@ -16,6 +16,8 @@ import argparse
 import ast
 import json
 import logging
+import random
+from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
@@ -88,6 +90,32 @@ def write_jsonl(records: list[dict[str, str]], path: str | Path) -> Path:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     return path
+
+
+def split_records(
+    records: list[dict[str, str]], *, eval_ratio: float = 0.15, seed: int = 42
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """按情感分层把样本切成 训练 / 评估 两份，评估集留作第 3 步的留出验证。"""
+    by_label: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for r in records:
+        try:
+            label = str(json.loads(r["output"]).get("sentiment", "中性"))
+        except (KeyError, json.JSONDecodeError):
+            label = "中性"
+        by_label[label].append(r)
+
+    rng = random.Random(seed)
+    train: list[dict[str, str]] = []
+    holdout: list[dict[str, str]] = []
+    for items in by_label.values():
+        shuffled = items[:]
+        rng.shuffle(shuffled)
+        k = int(len(shuffled) * eval_ratio) if len(shuffled) > 1 else 0
+        holdout.extend(shuffled[:k])
+        train.extend(shuffled[k:])
+    rng.shuffle(train)
+    rng.shuffle(holdout)
+    return train, holdout
 
 
 def write_dataset_info(jsonl_name: str, path: str | Path) -> Path:
