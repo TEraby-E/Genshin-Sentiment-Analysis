@@ -77,7 +77,8 @@ def main() -> int:
     from pathlib import Path
 
     out_dir = Path(args.out_dir)
-    train_path = dfmt.write_jsonl(train, out_dir / "train.jsonl")
+    # 训练文件名与 dataset_formatter / train_lora.sh 的 --dataset 保持一致：genshin_sentiment.jsonl
+    train_path = dfmt.write_jsonl(train, out_dir / f"{dfmt.DATASET_NAME}.jsonl")
     eval_path = dfmt.write_jsonl(holdout, out_dir / "eval.jsonl")
     info_path = dfmt.write_dataset_info(train_path.name, out_dir / "dataset_info.json")
     # 落一份完整标注（与 ai_analysis.csv 同构），便于复盘与复跑
