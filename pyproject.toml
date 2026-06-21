@@ -42,13 +42,14 @@ rag = [
     "sentence-transformers>=2.2",
 ]
 # 可选依赖：本地 LLM LoRA 微调与推理（src/finetune、LocalLLMClassifier）。
-# 体量大、需 eGPU；训练用 LLaMA-Factory CLI，推理用 transformers + peft + 4bit 量化。
+# 体量大、需 eGPU；训练用 LLaMA-Factory，推理用 transformers + peft + 4bit 量化。
 finetune = [
     "torch>=2.1",
     "transformers>=4.45",
     "peft>=0.12",
     "bitsandbytes>=0.43",
     "accelerate>=0.30",
+    "llamafactory>=0.9.0",
 ]
 # 开发工具
 dev = [

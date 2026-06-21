@@ -17,6 +17,10 @@
 # =============================================================================
 set -euo pipefail
 
+# HuggingFace 下载源：国内服务器直连 huggingface.co 常报 Network is unreachable，
+# 默认改走镜像 hf-mirror.com；如在能直连的环境，export HF_ENDPOINT=https://huggingface.co 覆盖。
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+
 # 基座模型与适配器输出目录默认沿用 .env 的 LORA_BASE_MODEL / LORA_ADAPTER_DIR，
 # 与 LocalLLMClassifier 推理端保持同一套配置；也可直接用 MODEL / OUTPUT_DIR 覆盖。
 MODEL="${MODEL:-${LORA_BASE_MODEL:-Qwen/Qwen2.5-7B-Instruct}}"
@@ -25,6 +29,8 @@ DATASET_DIR="${DATASET_DIR:-outputs/finetune}"
 OUTPUT_DIR="${OUTPUT_DIR:-${LORA_ADAPTER_DIR:-outputs/finetune/qwen2.5-7b-lora}}"
 # eGPU 单卡：限定可见卡，避免 LLaMA-Factory 误起多卡 NCCL（雷电带宽下多卡反而更慢）。
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+# FlashAttention：默认 fa2（需 pip install flash-attn）；装不上就 FLASH_ATTN=auto 自动退回。
+FLASH_ATTN="${FLASH_ATTN:-fa2}"
 
 llamafactory-cli train \
     --stage sft \
@@ -41,7 +47,7 @@ llamafactory-cli train \
     `# ---- 显存优化（eGPU 关键项）---- ` \
     --quantization_bit 4 \
     --quantization_method bnb \
-    --flash_attn fa2 \
+    --flash_attn "${FLASH_ATTN}" \
     --gradient_checkpointing true \
     --per_device_train_batch_size 1 \
     --gradient_accumulation_steps 16 \

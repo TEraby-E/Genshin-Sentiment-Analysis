@@ -27,6 +27,19 @@ uv run python -m src.finetune.dataset_formatter   # 生成训练集 JSONL
 bash src/finetune/train_lora.sh     # QLoRA 微调，适配器产物在 outputs/finetune/qwen2.5-7b-lora
 ```
 
+> **国内服务器拉不到 HuggingFace**（`[Errno 101] Network is unreachable`）：默认脚本已把
+> `HF_ENDPOINT` 指向镜像 `hf-mirror.com`。建议训练前先把基座权重预下载到本地缓存，避免
+> 训练跑到一半才因网络中断：
+>
+> ```bash
+> pip install -U "huggingface_hub[cli]"
+> export HF_ENDPOINT=https://hf-mirror.com
+> huggingface-cli download Qwen/Qwen2.5-7B-Instruct
+> # 想更快可：pip install hf_transfer && export HF_HUB_ENABLE_HF_TRANSFER=1
+> ```
+>
+> AutoDL 用户也可改用平台自带加速：`source /etc/network_turbo` 后直连 huggingface.co。
+
 > 适配器只有几十 MB，可以下回本地存档；但**不要在本地无 GPU 的机器上加载 7B 推理**，
 > 那会退化成 CPU 慢推。推理交给下一步的云端服务。
 

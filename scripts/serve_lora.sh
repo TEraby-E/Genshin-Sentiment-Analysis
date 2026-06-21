@@ -20,6 +20,9 @@
 # =============================================================================
 set -euo pipefail
 
+# 国内服务器拉基座权重同样需要走 HF 镜像，避免 Network is unreachable。
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+
 MODEL="${LORA_BASE_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
 ADAPTER="${LORA_ADAPTER_DIR:-outputs/finetune/qwen2.5-7b-lora}"
 SERVED_NAME="${LORA_SERVER_MODEL:-qwen2.5-7b-lora}"
