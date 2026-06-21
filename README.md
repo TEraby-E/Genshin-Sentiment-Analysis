@@ -58,6 +58,40 @@ uv run genshin-analyze
 
 运行后会在终端打印各项分析结论（含统计检验结果），并在 `outputs/` 生成六图分析面板 `genshin_analysis.png`。
 
+### 用 Docker 运行
+
+```bash
+cp .env.example .env          # 填入 DEEPSEEK_API_KEY，compose 会注入容器
+docker compose build app
+docker compose up app         # 浏览器开 http://localhost:8501
+```
+
+app 镜像是 CPU 版，含看板、DeepSeek 打标与离线 RAG；`data/` 与 `outputs/` 以数据卷挂载，密钥经 `.env` 注入而不打进镜像。改了代码用 `docker compose build app` 重建即可。
+
+### 接外部 GPU 容器（本地大模型轨道）
+
+笔记本无 GPU，所以本地 LoRA 大模型这条轨道由一个外部 GPU 容器提供，本地远程调用，不在本机加载 7B 权重。两种接法：
+
+- **远程云 GPU（推荐）**：在 AutoDL / RunPod 上微调并用 vLLM 起服务，再用 cloudflared 或 ngrok 映射出公网地址。本地只需在 `.env` 填 `LORA_SERVER_BASE_URL=https://xxxx.trycloudflare.com/v1`。
+- **自有 GPU 主机**：在该主机上 `docker compose --profile gpu up lora-server`，用本仓库的 vLLM 服务起端点；同机时本地 app 用 `LORA_SERVER_BASE_URL=http://lora-server:8000/v1` 直连。
+
+接好后本地一行代码都不用改，智能路由会自动多出一条 `lora_server` 轨道，难句优先走你自训的 Qwen 而不是付费的 DeepSeek。云端部署的逐步命令见 [docs/CLOUD_LORA.md](docs/CLOUD_LORA.md)。
+
+### 五档打标怎么调用
+
+最省心的是智能路由，它按评论难度自动分配，不用手动选档：
+
+```python
+from src.agents import RouterAgent
+router = RouterAgent.from_environment()
+for r in router.tag(["剧情真好", "这次又歪了保底白给"]):
+    print(r.track, r.sentiment, r.verified)   # 简单评论走离线轨道，难句走语义轨道
+```
+
+五档也能单独调：关键词基线 `aspect_sentiment.tag_aspects(text)`；DeepSeek 打标 `uv run python scripts/ai_analyze.py --sample 60`；蒸馏本地模型 `uv run python scripts/train_sentiment.py --sample 600`；本地 LoRA 先 `uv run python -m src.finetune.dataset_formatter` 再 `bash src/finetune/train_lora.sh`。看板里这五档都在「🏷️ 作品打标」页，粘贴文本或上传 CSV 即可。
+
+更完整的运行、容器化、外接 GPU 与打标调用方式见 [docs/RUN_GUIDE.md](docs/RUN_GUIDE.md)。
+
 ## 开发与测试
 
 ```bash

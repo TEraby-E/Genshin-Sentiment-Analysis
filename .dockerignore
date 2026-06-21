@@ -1,0 +1,18 @@
+# 构建上下文里排除大文件 / 本地状态 / 密钥；data 与 outputs 运行时用数据卷挂载
+.venv/
+.git/
+.github/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+outputs/
+notebooks/
+Business-report-1/
+docs/
+tests/
+scripts/
+.env
+*.png

@@ -1,0 +1,48 @@
+# 一份 compose 覆盖两种拓扑：
+#   1) 仅本地：docker compose up app        → 看板 + 离线/DeepSeek 打标（无需 GPU）
+#   2) GPU 主机：docker compose --profile gpu up   → 额外起 vLLM 把微调 Qwen 暴露成端点
+#
+# 笔记本无 GPU 时只用拓扑 1；LoRA 大模型轨道由远程云 GPU 提供，本地通过
+# .env 的 LORA_SERVER_BASE_URL 指向其公网地址（隧道）。详见 docs/CLOUD_LORA.md。
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        # 国内加速：导出 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple 再 build
+        UV_DEFAULT_INDEX: ${UV_DEFAULT_INDEX:-https://pypi.org/simple}
+    image: genshin-sentiment-app
+    container_name: genshin-app
+    ports:
+      - "8501:8501"           # 看板：浏览器开 http://localhost:8501
+    env_file:
+      - .env                  # 注入 DEEPSEEK_API_KEY / LORA_SERVER_* 等，不进镜像
+    volumes:
+      - ./data:/app/data      # 真实数据集（无则看板自动用演示数据）
+      - ./outputs:/app/outputs  # 蒸馏模型 joblib、AI 分析产物等
+
+  # 仅在带 NVIDIA GPU 的主机上启用（笔记本无 GPU 请勿启动此服务）。
+  # 启动：docker compose --profile gpu up lora-server
+  # 同机时 app 用 LORA_SERVER_BASE_URL=http://lora-server:8000/v1 直连。
+  lora-server:
+    image: vllm/vllm-openai:latest
+    container_name: genshin-lora-server
+    profiles: ["gpu"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./outputs/finetune:/adapters   # 训练产出的 LoRA 适配器
+    command: >
+      --model Qwen/Qwen2.5-7B-Instruct
+      --enable-lora
+      --lora-modules qwen2.5-7b-lora=/adapters/qwen2.5-7b-lora
+      --max-lora-rank 8
+      --max-model-len 4096
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
