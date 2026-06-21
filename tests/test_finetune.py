@@ -133,3 +133,51 @@ def test_load_eval_set_roundtrip(tmp_path):
     texts, gold = load_eval_set(p)
     assert texts == ["抽卡歪了"]
     assert gold == ["负面"]
+
+
+# ---- 自包含 QLoRA 训练脚本的数据编码（用假分词器，无需 GPU/transformers）----
+
+
+class _FakeTokenizer:
+    eos_token = "<eos>"
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        return "P:" + messages[-1]["content"] + "|"
+
+    def __call__(self, text, add_special_tokens=False):
+        return {"input_ids": list(range(len(text)))}
+
+
+def test_to_messages_shape():
+    from src.finetune.train_lora import to_messages
+
+    msgs = to_messages({"instruction": "sys", "input": "评论"})
+    assert [m["role"] for m in msgs] == ["system", "user"]
+    assert msgs[1]["content"] == "评论"
+
+
+def test_encode_masks_prompt_tokens():
+    from src.finetune.train_lora import _encode
+
+    rec = {"instruction": "sys", "input": "抽卡歪了", "output": "负面"}
+    tok = _FakeTokenizer()
+    enc = _encode(rec, tok, cutoff_len=1000)
+    prompt_len = len("P:抽卡歪了|")
+    # prompt 部分全部 -100，回答部分保留真实 token id
+    assert enc["labels"][:prompt_len] == [-100] * prompt_len
+    assert enc["labels"][prompt_len:] == enc["input_ids"][prompt_len:]
+    assert len(enc["input_ids"]) == len(enc["attention_mask"]) == len(enc["labels"])
+
+
+def test_load_records_reads_jsonl(tmp_path):
+    from src.finetune.train_lora import load_records
+
+    p = tmp_path / "train.jsonl"
+    p.write_text(
+        '{"instruction":"a","input":"b","output":"c"}\n\n'
+        '{"instruction":"d","input":"e","output":"f"}\n',
+        encoding="utf-8",
+    )
+    recs = load_records(p)
+    assert len(recs) == 2
+    assert recs[0]["input"] == "b"

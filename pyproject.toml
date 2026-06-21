@@ -42,14 +42,15 @@ rag = [
     "sentence-transformers>=2.2",
 ]
 # 可选依赖：本地 LLM LoRA 微调与推理（src/finetune、LocalLLMClassifier）。
-# 体量大、需 GPU；训练用 LLaMA-Factory，推理用 transformers + peft + 4bit 量化。
+# 自包含的 QLoRA 微调（src/finetune/train_lora.py）只用下列标准包，不引入 LLaMA-Factory
+# 那套庞大且带原生库的依赖树（torchaudio/torchvision/gradio），云端环境更稳。
+# 注意：torch 需与云端 GPU 的 CUDA 匹配，建议用镜像自带的 CUDA torch 或官方 cuXXX 源安装。
 finetune = [
     "torch>=2.1",
     "transformers>=4.45",
     "peft>=0.12",
     "bitsandbytes>=0.43",
     "accelerate>=0.30",
-    "llamafactory>=0.9.0",
 ]
 # 开发工具
 dev = [

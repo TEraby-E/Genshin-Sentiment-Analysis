@@ -5,8 +5,9 @@
 （如 Qwen2.5-7B），用 QLoRA 在消费级 GPU（如 RTX 4090, 24GB）上微调，得到一个
 比 TF-IDF 更懂语义与黑话、又无需联网/不烧 API 的本地分类器。
 
-- dataset_formatter：outputs/ai_analysis.csv -> LLaMA-Factory 所需的严格 JSONL；
-- train_lora.sh：LLaMA-Factory 的 QLoRA 训练模板（4bit / 梯度检查点 / FA2 / 微批=1~2）。
+- dataset_formatter：标注结果 -> alpaca JSONL（高置信筛选 + 训练/评估切分）；
+- train_lora：自包含 QLoRA 微调（transformers + peft + bitsandbytes，不依赖 LLaMA-Factory）；
+- evaluate：留出集评估 + 反讽错例分析，驱动增量迭代。
 """
 
 from __future__ import annotations

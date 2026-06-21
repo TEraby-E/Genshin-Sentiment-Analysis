@@ -40,6 +40,16 @@ bash src/finetune/train_lora.sh     # QLoRA 微调，适配器产物在 outputs/
 >
 > AutoDL 用户也可改用平台自带加速：`source /etc/network_turbo` 后直连 huggingface.co。
 
+> **torchaudio 报 `libtorchaudio_sox.so: cannot open shared object file`**：LLaMA-Factory 会
+> `import torchaudio`，若它与 torch 版本不匹配会崩。文本 SFT 用不到它，按 torch 版本重装匹配版本即可：
+>
+> ```bash
+> python -c "import torch; print(torch.__version__)"   # 例如 2.4.1+cu121
+> pip install --force-reinstall --no-deps "torchaudio==2.4.1" --index-url https://download.pytorch.org/whl/cu121
+> ```
+>
+> 或直接 `pip uninstall -y torchaudio` 重试（部分版本可容忍其缺失）。
+
 > 适配器只有几十 MB，可以下回本地存档；但**不要在本地无 GPU 的机器上加载 7B 推理**，
 > 那会退化成 CPU 慢推。推理交给下一步的云端服务。
 
