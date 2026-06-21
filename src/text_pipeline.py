@@ -13,12 +13,25 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from . import config, llm_client
 
+if TYPE_CHECKING:
+    from .rag.retriever import HybridRetriever
+
 logger = logging.getLogger(__name__)
+
+# 常见但易误判的原神社区黑话/缩写：作为 RAG「拦截」的候选触发词。
+# 命中其一就去词典检索释义，注入系统提示，避免模型按字面误判情感/方面。
+_JARGON_TERMS = (
+    "歪了", "保底", "大保底", "小保底", "深渊", "螺旋", "下水道", "毕业", "原石",
+    "纠缠之缘", "武器池", "卡池", "复刻", "标准池", "海灯节", "急冻树", "纪行",
+    "体力", "树脂", "圣遗物", "词条", "双暴", "充能", "配队", "面板", "氪金",
+    "白嫖", "策划", "米哈游", "米忽悠", "拷打", "节奏", "退环境", "缝合",
+)
 
 # ---- 1. 清洗：规则层 ----
 
@@ -104,14 +117,51 @@ def _normalize_result(raw: dict, batch_len: int) -> list[dict]:
     return out
 
 
-def classify_batch(batch: list[str], *, client=None) -> list[dict]:
-    """对一批评论做一次 API 调用，返回与输入等长的结构化结果。"""
-    raw = llm_client.chat_json(_CLASSIFY_SYSTEM, _build_classify_prompt(batch), client=client)
+def detect_jargon(texts: list[str]) -> list[str]:
+    """扫描一批评论里出现的疑似黑话词，去重保序，作为 RAG 检索的触发词。"""
+    joined = "\n".join(texts)
+    seen: list[str] = []
+    for term in _JARGON_TERMS:
+        if term in joined and term not in seen:
+            seen.append(term)
+    return seen
+
+
+def build_jargon_context(
+    texts: list[str], retriever: HybridRetriever, *, max_terms: int = 8
+) -> str:
+    """对一批评论里命中的黑话，从词典检索释义，拼成可注入系统提示的领域知识块。"""
+    terms = detect_jargon(texts)[:max_terms]
+    if not terms:
+        return ""
+    contexts = retriever.retrieve_terms(terms)
+    if not contexts:
+        return ""
+    lines = [f"- {c.term}：{c.snippets[0]}" for c in contexts]
+    header = "以下是相关原神社区黑话/设定的释义，请据此理解评论，避免按字面误判：\n"
+    return header + "\n".join(lines)
+
+
+def classify_batch(
+    batch: list[str], *, client=None, extra_context: str | None = None
+) -> list[dict]:
+    """对一批评论做一次 API 调用，返回与输入等长的结构化结果。
+
+    extra_context 非空时（来自 RAG 检索的黑话释义）追加进系统提示，对抗幻觉/误判。
+    """
+    system = _CLASSIFY_SYSTEM
+    if extra_context:
+        system = f"{system}\n\n{extra_context}"
+    raw = llm_client.chat_json(system, _build_classify_prompt(batch), client=client)
     return _normalize_result(raw, len(batch))
 
 
 def classify_with_llm(
-    texts: list[str], *, client=None, batch_size: int | None = None
+    texts: list[str],
+    *,
+    client=None,
+    batch_size: int | None = None,
+    extra_context: str | None = None,
 ) -> list[dict]:
     """对任意长度的评论列表分批调用 API，返回每条的 {sentiment, aspects, reason}。
 
@@ -123,7 +173,7 @@ def classify_with_llm(
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
         try:
-            results.extend(classify_batch(batch, client=client))
+            results.extend(classify_batch(batch, client=client, extra_context=extra_context))
         except Exception as e:  # noqa: BLE001 - 单批失败兜底，不中断整体
             logger.error("第 %d 批分类失败，兜底为中性/其他：%s", start // batch_size, e)
             results.extend({"sentiment": "中性", "aspects": ["其他"], "reason": ""} for _ in batch)
@@ -136,10 +186,12 @@ def analyze_comments(
     text_column: str = "Comment_Content",
     sample: int | None = None,
     client=None,
+    retriever: HybridRetriever | None = None,
 ) -> pd.DataFrame:
-    """端到端工作流：清洗 → AI 归类 → 返回带 sentiment/aspects 的结构化 DataFrame。
+    """端到端工作流：清洗 →（可选 RAG 注入黑话释义）→ AI 归类 → 结构化 DataFrame。
 
     sample 用于控制成本：真实数据 40 万条，演示/迭代时只跑前 N 条即可。
+    retriever 非空时启用 RAG：先检索评论里黑话的领域释义，注入系统提示再分类。
     """
     if text_column not in comments.columns:
         raise KeyError(f"评论数据缺少文本列 {text_column!r}")
@@ -152,7 +204,15 @@ def analyze_comments(
     valid = df[df["clean_text"].str.len() >= 2].copy()
     logger.info("清洗后有效评论 %d/%d 条，开始调用 API 分类", len(valid), len(df))
 
-    preds = classify_with_llm(valid["clean_text"].tolist(), client=client)
+    extra_context: str | None = None
+    if retriever is not None:
+        extra_context = build_jargon_context(valid["clean_text"].tolist(), retriever)
+        if extra_context:
+            logger.info("RAG 命中黑话并注入领域上下文（%d 字）", len(extra_context))
+
+    preds = classify_with_llm(
+        valid["clean_text"].tolist(), client=client, extra_context=extra_context
+    )
     valid["llm_sentiment"] = [p["sentiment"] for p in preds]
     valid["llm_aspects"] = [p["aspects"] for p in preds]
     valid["llm_reason"] = [p["reason"] for p in preds]

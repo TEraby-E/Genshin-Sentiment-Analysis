@@ -68,3 +68,29 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 # LLM 方面分类候选标签（与 aspect_sentiment.ASPECTS 对齐，作为语义级分类的取值域）
 LLM_ASPECT_LABELS = ["剧情", "抽卡", "活动", "数值与机制", "运营", "社交与同人", "其他"]
 LLM_SENTIMENT_LABELS = ["正面", "中性", "负面"]
+
+# ---- RAG 检索增强（src/rag）配置 ----
+# 嵌入模型：留空用离线哈希嵌入（零下载、无 GPU，默认）；填 sentence-transformers
+# 模型名（如 BAAI/bge-small-zh-v1.5）则用语义嵌入，召回更准（需 rag extra）。
+RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL") or None
+# 向量库后端：auto（优先 Chroma，缺失回退内存）/ memory（纯内存）/ chroma（强制本地持久化）
+RAG_VECTOR_BACKEND = os.getenv("RAG_VECTOR_BACKEND", "auto")
+# Chroma 持久化目录（仅 chroma 后端用到）
+RAG_PERSIST_DIR = Path(os.getenv("RAG_PERSIST_DIR", str(OUTPUT_DIR / "rag_lore")))
+
+# ---- 本地 LoRA 微调大模型（src/finetune、LocalLLMClassifier）配置 ----
+# 基座模型：HuggingFace 仓库 id 或本地权重目录（首次加载按需下载到本地缓存）。
+LORA_BASE_MODEL = os.getenv("LORA_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+# LoRA 适配器目录：train_lora.sh 的训练产物默认落在这里。
+LORA_ADAPTER_DIR = Path(
+    os.getenv("LORA_ADAPTER_DIR", str(OUTPUT_DIR / "finetune" / "qwen2.5-7b-lora"))
+)
+
+# ---- 云端自建 LoRA 推理端点（场景 B：本地调用 + 云端算力）----
+# 用 vLLM 等把微调后的 Qwen 起成 OpenAI 兼容服务（可经 Cloudflare/Ngrok 映射出公网地址），
+# 填下面的地址即可让智能路由的 lora_server 轨道接入你自己的云端模型；留空则该轨道自动关闭。
+LORA_SERVER_BASE_URL = os.getenv("LORA_SERVER_BASE_URL") or None
+LORA_SERVER_MODEL = os.getenv("LORA_SERVER_MODEL", "qwen2.5-7b-lora")
+LORA_SERVER_API_KEY = os.getenv("LORA_SERVER_API_KEY", "EMPTY")
+# 若服务端不支持强制 JSON 输出，设为 0/false 以去掉 response_format
+LORA_SERVER_JSON_MODE = os.getenv("LORA_SERVER_JSON_MODE", "1").lower() not in ("0", "false", "no")

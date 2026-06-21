@@ -57,6 +57,58 @@ def get_client() -> Any:
     return OpenAI(api_key=get_api_key(), base_url=config.LLM_BASE_URL)
 
 
+class ServedLLMClient:
+    """指向自建 OpenAI 兼容端点（如云端 vLLM 上的微调 Qwen）的客户端包装。
+
+    包住一个 OpenAI 客户端并在每次 create 时强制改写 model 名，因此上层（chat_json /
+    text_pipeline）无需改任何 model 参数即可把同一套打标流程切到自建端点（场景 B）。
+    json_mode=False 时去掉 response_format，兼容不支持强制 JSON 的服务端。
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        *,
+        api_key: str = "EMPTY",
+        model: str,
+        json_mode: bool = True,
+        _inner: Any | None = None,
+    ) -> None:
+        if _inner is not None:
+            self._client = _inner
+        else:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=api_key or "EMPTY", base_url=base_url)
+        self._model = model
+        self._json_mode = json_mode
+        # 让 client.chat.completions.create 的链式访问落到本包装上
+        self.chat = self
+        self.completions = self
+
+    def create(self, **kwargs: Any) -> Any:
+        kwargs["model"] = self._model  # 覆盖为自建端点对外暴露的模型名
+        if not self._json_mode:
+            kwargs.pop("response_format", None)
+        return self._client.chat.completions.create(**kwargs)
+
+
+def get_served_client() -> Any | None:
+    """按 config.LORA_SERVER_* 构造自建端点客户端；未配置地址则返回 None（轨道自动关闭）。"""
+    if not config.LORA_SERVER_BASE_URL:
+        return None
+    try:
+        return ServedLLMClient(
+            config.LORA_SERVER_BASE_URL,
+            api_key=config.LORA_SERVER_API_KEY,
+            model=config.LORA_SERVER_MODEL,
+            json_mode=config.LORA_SERVER_JSON_MODE,
+        )
+    except ImportError:
+        logger.warning("配置了 LORA_SERVER_BASE_URL 但未安装 openai SDK，云端 LoRA 轨道不可用")
+        return None
+
+
 def chat_json(
     system_prompt: str,
     user_prompt: str,

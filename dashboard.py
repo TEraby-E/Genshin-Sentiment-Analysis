@@ -41,6 +41,19 @@ def get_hit_model(_videos: pd.DataFrame) -> dict:
     return analysis.train_hit_model(_videos)
 
 
+@st.cache_resource(show_spinner="构建 RAG 梗&设定词典…")
+def get_lore_retriever():
+    """构建混合检索器供路由的「检索」一角使用；无数据/构建失败则返回 None（路由照常退化）。"""
+    try:
+        import asyncio
+
+        from src.rag.ingestion import build_lore_dictionary
+
+        return asyncio.run(build_lore_dictionary(max_posts=120, max_comments=400))
+    except Exception:  # noqa: BLE001 - 缺数据等情况下不阻塞路由
+        return None
+
+
 def llm_available() -> bool:
     try:
         from src import llm_client
@@ -107,7 +120,13 @@ with tab_tag:
 
     mode = st.radio(
         "打标方式",
-        ["关键词基线（离线·秒出）", "AI 语义打标（DeepSeek）", "本地模型（蒸馏·免费秒级）"],
+        [
+            "关键词基线（离线·秒出）",
+            "AI 语义打标（DeepSeek）",
+            "本地模型（蒸馏·免费秒级）",
+            "本地微调大模型 (Local LoRA LLM)",
+            "🧭 智能路由（自动分配·校验·Router Agent）",
+        ],
         horizontal=True,
     )
     default_text = "\n".join(sample_data._COMMENT_TEXTS[:5])
@@ -154,6 +173,67 @@ with tab_tag:
             res = pd.DataFrame({"文本": texts, "情感（本地模型）": preds})
             st.dataframe(res, width="stretch")
             st.bar_chart(pd.Series(preds).value_counts())
+    elif mode.startswith("本地微调"):
+        from src import sentiment_train
+
+        st.caption(
+            "用 LLaMA-Factory QLoRA 在 eGPU 上微调的本地大模型（Qwen2.5 + LoRA），"
+            "比蒸馏分类器更懂语义与社区黑话，离线、免 API。"
+        )
+        clf = sentiment_train.LocalLLMClassifier()
+        if not sentiment_train.LocalLLMClassifier.deps_available():
+            st.warning(
+                "缺少推理依赖。请先 `uv sync --extra finetune`（需 transformers/peft/torch）。"
+            )
+        elif not clf.adapter_path.exists():
+            st.warning(
+                "尚未训练 LoRA 适配器。流程：`uv run python -m src.finetune.dataset_formatter` "
+                "生成数据集 → `bash src/finetune/train_lora.sh` 微调，产物默认在 "
+                f"`{clf.adapter_path}`。"
+            )
+        elif st.button("用本地微调大模型打标", type="primary") and texts:
+            with st.spinner("加载本地大模型并推理中（首次加载较慢）…"):
+                preds = clf.predict(texts)
+            res = pd.DataFrame({"文本": texts, "情感（LoRA 大模型）": preds})
+            st.dataframe(res, width="stretch")
+            st.bar_chart(pd.Series(preds).value_counts())
+    elif mode.startswith("🧭"):
+        from src import agents, llm_client
+
+        st.caption(
+            "路由 Agent 按评论难度自动分配到最省的可行轨道（关键词 / 蒸馏 / LoRA / RAG-DeepSeek）："
+            "容易的走便宜轨道，难句（黑话 / 反讽）直接起步于语义轨道，并经「检索 → 推理 → 校验」"
+            "三角复核，校验不过则自动升档重判。不可用的轨道（无 API / 无 GPU / 无模型）自动跳过。"
+        )
+        if st.button("智能路由打标", type="primary") and texts:
+            client = llm_client.get_client() if _has_llm else None
+            retriever = get_lore_retriever()
+            router = agents.RouterAgent.from_environment(client=client, retriever=retriever)
+            with st.spinner("路由分配 + 三角校验中…"):
+                results = router.tag(texts)
+            res = pd.DataFrame(
+                [
+                    {
+                        "文本": r.text,
+                        "情感": r.sentiment,
+                        "方面": "、".join(r.aspects) or "—",
+                        "命中轨道": r.track,
+                        "置信": round(r.confidence, 2),
+                        "已校验": "✅" if r.verified else "⚠️",
+                        "升档": r.escalations,
+                    }
+                    for r in results
+                ]
+            )
+            st.dataframe(res, width="stretch")
+            stats = router.last_stats
+            c1, c2, c3 = st.columns(3)
+            c1.metric("可用轨道阶梯", " → ".join(stats["ladder"]))
+            c2.metric("校验通过", f"{stats['n_verified']}/{stats['n']}")
+            c3.metric("升档次数", stats["n_escalated"])
+            if stats["route_counts"]:
+                st.caption("各轨道最终处理量（体现算力分配）")
+                st.bar_chart(pd.Series(stats["route_counts"]))
     else:
         n = st.slider("AI 处理条数（控成本）", 1, 100, min(20, len(texts) or 20))
         if not _has_llm:

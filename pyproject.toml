@@ -35,6 +35,21 @@ dashboard = [
     "streamlit>=1.30",
     "altair>=5.0",
 ]
+# 可选依赖：RAG 检索增强（src/rag）。默认走纯 numpy 内存库 + 哈希嵌入，无需安装；
+# 需要持久化/语义嵌入时再装本 extra（chromadb 本地模式 + sentence-transformers）。
+rag = [
+    "chromadb>=0.5",
+    "sentence-transformers>=2.2",
+]
+# 可选依赖：本地 LLM LoRA 微调与推理（src/finetune、LocalLLMClassifier）。
+# 体量大、需 eGPU；训练用 LLaMA-Factory CLI，推理用 transformers + peft + 4bit 量化。
+finetune = [
+    "torch>=2.1",
+    "transformers>=4.45",
+    "peft>=0.12",
+    "bitsandbytes>=0.43",
+    "accelerate>=0.30",
+]
 # 开发工具
 dev = [
     "ruff>=0.4",

@@ -17,11 +17,13 @@
 - **内部工具看板（Streamlit）**：`dashboard.py` 把全部分析与监控能力封装成业务可直接上手的六个工具——作品打标（关键词基线 + AI 语义打标）、作者分类与增长分析（生命周期分群 + 唤回目标识别 + 主题增长标签）、内容爆点预测与总结（单视频爆款概率交互打分器 + 爆款共性 AI 总结）、竞品动态监测、榜单数据监控、舆情词云 AI 总结。无真实数据/抓取被风控时自动用演示数据开箱即跑。
 - **竞品 / 榜单数据监控（B 站抓取）**：`src/scraper` 复刻 B 站公开接口的 WBI 签名算法，抓取排行榜、搜索结果、公开视频统计（仅公开非个人数据，自带限速 + 磁盘缓存 + 优雅降级）；`src/monitor.py` 把抓取结果整理成带时间戳的快照并做榜单变化检测（新上榜/排名变动）、竞品内容产出与热度聚合，为业务决策提供数据参考。
 - **AI 文本工作流（调用主流模型 API）**：`text_pipeline.py` 实现「自动化清洗 → 语义级归类 → 舆情总结」三段式工作流，调用 DeepSeek（OpenAI 兼容协议，可一键切换到任意兼容服务）对原始非结构化评论做：规则清洗（去链接/@/回复前缀/重复字符）→ LLM 批量打标（情感极性 + 多方面分类，强制 JSON 输出 + 自动重试 + 非法标签兜底）→ LLM 舆情总结（核心议题、代表性原声、词云关键词、可执行运营建议）。解决关键词规则在口语化、反讽、表情符号场景下的覆盖盲区，密钥从 `.env` 读取、绝不入库。
+- **下一代 AI 管线：RAG 反幻觉 + 本地 LoRA 微调**：在不破坏既有 uv 环境、CI 与看板的前提下新增两条进阶轨道。一是 RAG 检索增强，从数据集异步构建本地「梗 & 设定词典」向量库，调用大模型前先用混合检索器拦截评论中的社区黑话、检索释义并注入系统提示，让模型先理解梗再判断，避免按字面误判；向量库默认是零依赖的纯 numpy 内存版本，需要时可换成 ChromaDB。二是本地 LoRA 微调，把高置信的大模型标注转成 LLaMA-Factory 数据集，用 QLoRA 在外接 eGPU 上以显存优先的策略微调 Qwen2.5-7B，再由本地分类器离线推理。两条轨道的重依赖都延迟导入并收进可选依赖组，没有 GPU 的 CI 照常全绿。
+- **智能路由编排 Agent**：把上述四条打标能力统一成可调度的轨道，由 RouterAgent 按评论难度分配算力。简单的评论走零成本轨道，含黑话或反讽的难句才进入语义轨道，并经过「检索、推理、校验」三角复核；校验不通过就沿成本阶梯逐级升档重判，把贵的算力只花在确实需要的样本上。校验者默认是零成本的规则实现，也可换成大模型评审员。拿不到 API、GPU 或模型的轨道会被自动跳过，离线时优雅退化，不影响 CI。
 - **爆款预测建模**：用随机森林预测视频是否成为爆款（AUC ≈ 0.60），得出"爆款由内容质量主导、而非发布技巧"的业务结论。
 - **创作者/内容主题生命周期分群**：基于 UP 主发布频次与活跃时长，划分单发/成长期/稳定期/沉寂期四类创作者，识别出"沉寂期"创作者历史中位播放反而高于"稳定期"——这类创作者是潜在的唤回/再合作目标，而不是简单地把资源都押在当前活跃的稳定创作者上；同时按月度产出增长率给内容主题打"增长/平稳/衰退"标签，指导内容资源倾斜方向。
 - **跨界联动效果的因果推断**：用同月匹配 + 置换检验（而非简单看绝对数字）评估跨界联动公告相对同期普通公告的点赞数增量，控制版本节奏等随时间变化的混杂因素；处理组样本极小（n=6）时仍诚实报告效应量与置信区间的不确定性，而不是用大样本假设硬套统计检验。
 - **A/B 实验评估框架**：实现样本量/检验功效计算（power analysis）与双样本显著性检验，用模拟数据验证方法本身的正确性——因为数据集是观察性数据，不包含真实随机分流实验，这个模块刻意做成可复用的通用框架，接入真实埋点转化数据即可直接使用。
-- **工程规范性**：60+ 单元测试（合成数据 fixture + fake LLM/HTTP client，不依赖真实数据或网络即可在 CI 跑通）、ruff 静态检查、mypy 类型检查、GitHub Actions CI 三件套全部接入。
+- **工程规范性**：85+ 单元测试（合成数据 fixture + fake LLM/HTTP client + fake 嵌入，不依赖真实数据、网络或 GPU 即可在 CI 跑通——RAG 检索与微调数据格式化均有 mock 覆盖）、ruff 静态检查、mypy 类型检查、GitHub Actions CI 三件套全部接入。
 
 ## 数据规模
 
@@ -68,9 +70,13 @@ uv run pytest --cov=src --cov-report=term-missing
 # 静态检查
 uv run ruff check src tests
 uv run mypy src
+
+# 一键自检：逐项探测所有服务/模型是否可用（DeepSeek / RAG / 蒸馏 / 云端·本地 LoRA / 路由 / 看板）
+uv run python scripts/healthcheck.py            # 含 DeepSeek 联网实测
+uv run python scripts/healthcheck.py --skip-api # 只测离线能力，不联网
 ```
 
-测试覆盖数据契约校验、四大核心分析函数、统计检验、方面级情感分析、生命周期分群、因果推断、A/B 实验框架，均使用 `tests/conftest.py` 中的合成 fixture，CI 中无需访问真实数据即可全部跑通（见 `.github/workflows/ci.yml`）。
+测试覆盖数据契约校验、四大核心分析函数、统计检验、方面级情感分析、生命周期分群、因果推断、A/B 实验框架，以及 RAG 混合检索（用 `tests/conftest.py` 的 fake 嵌入，无 GPU 亦可跑）与 LoRA 微调的数据格式化；均使用 `tests/conftest.py` 中的合成 fixture，CI 中无需访问真实数据、网络或 GPU 即可全部跑通（见 `.github/workflows/ci.yml`）。
 
 ## 项目结构
 
@@ -94,8 +100,11 @@ genshin-sentiment-analysis/
     ├── stats_tests.py      # 统计显著性检验、滚动 z-score 预警
     ├── aspect_sentiment.py # 方面级情感分析（关键词基线 + LLM 语义分类）
     ├── llm_client.py       # 主流 AI 模型 API 客户端封装（DeepSeek/OpenAI 兼容，JSON+重试）
-    ├── text_pipeline.py    # AI 文本工作流：清洗 → 归类 → 舆情/爆点总结
-    ├── sentiment_train.py  # 舆情打标训练：LLM 标注 → 蒸馏轻量本地分类器
+    ├── text_pipeline.py    # AI 文本工作流：清洗 →（可选 RAG 接地）→ 归类 → 舆情/爆点总结
+    ├── sentiment_train.py  # 舆情打标训练：LLM 标注 → 蒸馏轻量分类器 + 本地 LoRA 大模型分类器
+    ├── rag/                # RAG 检索增强：向量库/嵌入/混合检索/异步词典入库（黑话接地，对抗幻觉）
+    ├── finetune/           # 本地 LLM LoRA 微调：数据格式化（LLaMA-Factory JSONL）+ QLoRA 训练脚本
+    ├── agents/             # 智能路由编排：按难度分配轨道 + 检索-推理-校验三角 + 成本阶梯升档
     ├── wordcloud_gen.py    # 词云核心（分词 + AI 关键词加权 + 渲染，脚本/看板共用）
     ├── sample_data.py      # 合成演示数据（无真实数据时让看板开箱即跑）
     ├── scraper/            # B 站公开数据抓取（WBI 签名 + 排行榜/搜索/视频统计）
@@ -173,7 +182,70 @@ model = sentiment_train.load_model()
 labels = sentiment_train.predict(model, ["抽卡又歪了", "剧情太感人了"])  # → ['负面', '正面']
 ```
 
-> 项目用到的全部 AI / LLM 应用工程技术（结构化输出、Prompt 工程、重试/降级、成本分层、知识蒸馏、语义聚合等）见 [docs/AI_ENGINEERING.md](docs/AI_ENGINEERING.md)。
+### RAG 检索增强：用领域知识接地，对抗黑话误判
+
+玩家评论高度依赖社区黑话和时效性强的梗，比如「歪了」指抽卡没出想要的角色、「下水道」指某个角色强度被低估。通用大模型不了解这些社区内生的语义，很容易按字面把评论判错情感或方面。为此 `src/rag/` 在调用大模型之前先做一步检索增强：从数据集里构建一个本地的「梗 & 设定词典」向量库，分类前检索出评论中黑话的释义，注入到系统提示里，让模型先理解梗再做判断。
+
+这套检索栈刻意做得很轻，默认不依赖任何外部服务。向量库默认用纯 numpy 实现的内存版本，可以完全离线运行，也能在 CI 里跑通；当词典规模变大或需要跨会话持久化时，再切换到 ChromaDB 的本地模式。嵌入默认用确定性的特征哈希实现，无需模型、外网或 GPU，需要更高召回质量时可以换成 sentence-transformers 的语义嵌入。检索器是稠密向量与稀疏 BM25 的混合，把两者的分数归一化后加权融合，这样既能召回语义相近的梗，也能精确命中低频的专有词。词典的语料来自评论聚类关键词、官方动态正文和高赞 UGC 评论，由 `ingestion.py` 异步切块、嵌入后灌入向量库。
+
+```bash
+uv sync --extra rag
+uv run python -m src.rag.ingestion --max-posts 300 --max-comments 2000
+```
+
+```python
+import asyncio
+from src import text_pipeline
+from src.rag.ingestion import build_lore_dictionary
+
+retriever = asyncio.run(build_lore_dictionary())
+analyzed = text_pipeline.analyze_comments(comments_df, sample=100, retriever=retriever)
+```
+
+只要传入 `retriever`，分类流程就会自动拦截评论里的黑话、检索释义并注入系统提示；不传则与原来的链路完全一致，对既有调用零侵入。
+
+### 本地 LoRA 微调：面向 eGPU 的低显存进阶轨道
+
+除了 TF-IDF 蒸馏这条轻量轨道，项目还提供一条更重的轨道：把大模型标注的高置信数据进一步微调进一个本地小模型（如 Qwen2.5-7B），得到一个比 TF-IDF 更懂语义和黑话、同样离线免 API 的分类器。考虑到训练和推理都跑在笔记本经雷电或 Oculink 外接的 eGPU 上，整个流程以显存占用最小为最高优先级。
+
+`dataset_formatter.py` 负责数据准备，它从 `outputs/ai_analysis.csv` 中筛出高置信样本——只保留情感和方面取值合法、且判断依据足够充分的条目——再转成 LLaMA-Factory 要求的 alpaca JSONL 格式，并自动生成可直接注册的 `dataset_info.json`。训练脚本 `train_lora.sh` 基于 LLaMA-Factory 的 QLoRA 模板，把针对 eGPU 的显存优化都打开了：4-bit 量化、梯度检查点、FlashAttention-2、微批大小为 1 配合梯度累积、分页 8-bit 优化器，并固定单卡运行以避开雷电带宽下多卡通信的额外开销。推理则由 `LocalLLMClassifier` 封装，加载量化后的基座模型和 LoRA 适配器做情感分类；transformers、peft、torch 这些重依赖全部延迟到真正加载时才导入，没装也不会影响其它模块和 CI。
+
+```bash
+uv run python -m src.finetune.dataset_formatter
+uv sync --extra finetune
+bash src/finetune/train_lora.sh
+```
+
+```python
+from src.sentiment_train import LocalLLMClassifier
+
+clf = LocalLLMClassifier()
+labels = clf.predict(["抽卡又歪了", "剧情太感人了"])  # → ['负面', '正面']
+```
+
+微调完成后，看板「作品打标」页会多出第四档「本地微调大模型」，与关键词基线、AI 语义打标、蒸馏本地模型并列；依赖或适配器缺失时会给出明确引导，而不是静默失败。
+
+### 智能路由编排：按难度分配算力，配合检索-推理-校验三角
+
+上面四条打标轨道各有成本和精度的取舍，与其让用户手动挑选，不如交给一个路由 Agent 按评论难度自动分配。`src/agents/` 把四条能力统一封装成可调度的「轨道」，由 `RouterAgent` 统筹。它先用一套零成本的离线规则给每条评论打难度分，依据是评论里黑话的数量、有没有反讽语气以及长度。简单的评论直接走便宜轨道，难句才会进入「检索、推理、校验」三角：先检索领域证据，再让大模型打标，最后由一个校验者复核结果是否可信。如果校验不通过，就沿着成本阶梯从关键词、蒸馏、本地 LoRA 到 RAG-DeepSeek 逐级升档重判，这样贵的算力只会花在确实需要的样本上。
+
+校验者有两档。默认的 `HeuristicVerifier` 用情感词典的极性冲突和结果完整性来判断，零成本且结果确定；需要更高把握时可以换成 `LLMVerifier`，让大模型直接当评审员，更准但要多花一次调用。整个路由还会自适应环境：拿不到 API、GPU 或模型文件的轨道会被自动跳过，离线时优雅退化到关键词和蒸馏，不会崩溃。每次打标都会返回每条评论命中了哪条轨道、置信度多少、是否通过校验、升档了几次。
+
+```python
+from src.agents import RouterAgent
+
+router = RouterAgent.from_environment()
+results = router.tag(["剧情真好", "这次又歪了，保底白给"])
+for r in results:
+    print(r.track, r.sentiment, r.verified, r.escalations)
+print(router.last_stats)
+```
+
+`from_environment` 会按当前环境自动组装可用轨道，缺少 API 或 GPU 时只用关键词和蒸馏；传入 `client` 或 `retriever` 即可启用 RAG-DeepSeek 轨道。看板「作品打标」页对应新增第五档「智能路由」，逐条展示命中轨道、置信、校验状态和升档次数，并用各轨道的处理量直观呈现算力是怎么分配的。
+
+如果你把微调后的 Qwen 用 vLLM 部署成云端服务，路由还会自动多出一条 `lora_server` 轨道。只要在 `.env` 里填上云端地址，本地不用改任何代码，难句就会优先走你自建的模型而不是付费的 DeepSeek。这条「本地调用、云端算力」的链路靠的是 `ServedLLMClient` 包装现有的 OpenAI 兼容协议、强制改写模型名，完整的云端部署步骤见 [docs/CLOUD_LORA.md](docs/CLOUD_LORA.md)。
+
+> 项目用到的全部 AI / LLM 应用工程技术，包括结构化输出、Prompt 工程、重试与降级、成本分层、知识蒸馏、检索增强、本地 LoRA 微调、智能路由编排和语义聚合等，详见 [docs/AI_ENGINEERING.md](docs/AI_ENGINEERING.md)。
 
 ## 竞品 / 榜单数据监控（B 站抓取）
 
@@ -200,7 +272,7 @@ uv run streamlit run dashboard.py
 ```
 
 六个工具页：
-- **🏷️ 作品打标**：粘贴或上传 CSV，关键词基线（秒出）/ AI 语义打标（情感 + 方面）二选一，输出结构化标签与覆盖率。
+- **🏷️ 作品打标**：粘贴或上传 CSV，提供五档打标方式——离线秒出的关键词基线、DeepSeek 的 AI 语义打标、蒸馏出的免费本地模型、eGPU 上微调的本地大模型，以及按难度自动分配轨道并带校验升档的智能路由。输出结构化的情感与方面标签，智能路由还会标明每条命中的轨道和校验状态。
 - **👤 作者分类与增长**：UP 主生命周期分群（单发/成长/稳定/沉寂）、潜在唤回目标识别、内容主题增长/衰退标签。
 - **🚀 内容爆点：预测与总结**：模型 AUC 与特征重要性、单视频爆款概率交互打分器、爆款共性 AI 选题总结。
 - **🔭 竞品动态监测**：对一组竞品关键词抓取，聚合内容产出量与热度并对比。
@@ -217,9 +289,6 @@ uv run streamlit run dashboard.py
 - 跨界联动的因果效应评估受限于样本量（n=6），结论方向可信但置信区间较宽；积累更多联动事件样本或设计真正的随机化 A/B 实验，能进一步收窄估计的不确定性。
 
 ## 技术栈
-
-pandas · numpy · matplotlib · scikit-learn · scipy · openai SDK（DeepSeek/OpenAI 兼容）· requests · streamlit · pytest · ruff · mypy
-
-## License
-
-MIT
+- 数据分析与统计底座：pandas, scipy, scikit-learn (随机森林/TF-IDF), 假设检验 (z-test/置换检验)
+- 多智能体与 AI 模型：LangGraph, Qwen2.5-7B (LoRA 微调), DeepSeek-V3 API, Qdrant (向量检索)
+- 数据流引擎与工程化：FastAPI, Streamlit, Cleanlab (弱监督去噪), uv (依赖锁定), pytest, GitHub Actions

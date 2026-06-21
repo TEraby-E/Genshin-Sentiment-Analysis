@@ -118,3 +118,114 @@ def predict(model: Any, texts: list[str]) -> list[str]:
     """用训练好的学生模型批量推理情感，免 API、毫秒级。"""
     cleaned = [text_pipeline.clean_text(t) for t in texts]
     return [str(p) for p in model.predict(cleaned)]
+
+
+# ---- 进阶轨道：本地微调大模型分类器（Qwen2.5 + LoRA） ----
+
+DEFAULT_LORA_DIR = config.LORA_ADAPTER_DIR
+
+
+class LocalLLMClassifier:
+    """加载本地微调大模型（基座 + LoRA 适配器）做情感分类，离线、免 API。
+
+    与 TF-IDF 蒸馏并行的「重」轨道：更懂语义与黑话，代价是需要 eGPU 显存。
+    一切重依赖（transformers/peft/torch）延迟到 load() 时导入，未安装也不影响
+    本模块其余功能与 CI（属可选 finetune extra）。
+    """
+
+    def __init__(
+        self,
+        adapter_path: str | Path = DEFAULT_LORA_DIR,
+        *,
+        base_model: str = config.LORA_BASE_MODEL,
+        load_in_4bit: bool = True,
+        max_new_tokens: int = 48,
+    ) -> None:
+        self.adapter_path = Path(adapter_path)
+        self.base_model = base_model
+        self.load_in_4bit = load_in_4bit
+        self.max_new_tokens = max_new_tokens
+        self._model: Any = None
+        self._tokenizer: Any = None
+
+    @staticmethod
+    def deps_available() -> bool:
+        """transformers/peft 是否可导入（不触发实际加载）。"""
+        import importlib.util
+
+        return all(importlib.util.find_spec(m) for m in ("torch", "transformers", "peft"))
+
+    def is_ready(self) -> bool:
+        """适配器已就绪且依赖可用——dashboard 据此决定是否放行该模式。"""
+        return self.adapter_path.exists() and self.deps_available()
+
+    def load(self) -> LocalLLMClassifier:
+        """加载基座（可选 4bit 量化）+ LoRA 适配器与分词器。"""
+        import torch  # noqa: F401 - 触发 CUDA 初始化并校验依赖
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        quant_kwargs: dict[str, Any] = {}
+        if self.load_in_4bit:
+            from transformers import BitsAndBytesConfig
+
+            quant_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+
+        self._tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        base = AutoModelForCausalLM.from_pretrained(
+            self.base_model, device_map="auto", torch_dtype=torch.bfloat16, **quant_kwargs
+        )
+        self._model = PeftModel.from_pretrained(base, str(self.adapter_path)).eval()
+        return self
+
+    def _build_messages(self, text: str) -> list[dict[str, str]]:
+        from .finetune.dataset_formatter import INSTRUCTION
+
+        return [
+            {"role": "system", "content": INSTRUCTION},
+            {"role": "user", "content": text},
+        ]
+
+    def _parse_label(self, generated: str) -> str:
+        """从模型输出里抽取合法情感标签，失败兜底为中性。"""
+        import json
+
+        try:
+            start, end = generated.index("{"), generated.rindex("}") + 1
+            sentiment = json.loads(generated[start:end]).get("sentiment")
+            if sentiment in config.LLM_SENTIMENT_LABELS:
+                return str(sentiment)
+        except (ValueError, json.JSONDecodeError):
+            pass
+        for label in config.LLM_SENTIMENT_LABELS:
+            if label in generated:
+                return label
+        return "中性"
+
+    def predict(self, texts: list[str]) -> list[str]:
+        """批量推理情感标签。需先 load()。"""
+        if self._model is None or self._tokenizer is None:
+            self.load()
+        import torch
+
+        out: list[str] = []
+        for text in texts:
+            clean = text_pipeline.clean_text(text)
+            prompt = self._tokenizer.apply_chat_template(
+                self._build_messages(clean), tokenize=False, add_generation_prompt=True
+            )
+            inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
+            with torch.no_grad():
+                gen = self._model.generate(
+                    **inputs, max_new_tokens=self.max_new_tokens, do_sample=False
+                )
+            decoded = self._tokenizer.decode(
+                gen[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+            )
+            out.append(self._parse_label(decoded))
+        return out

@@ -1,0 +1,10 @@
+{
+  "genshin_sentiment": {
+    "file_name": "genshin_sentiment.jsonl",
+    "columns": {
+      "prompt": "instruction",
+      "query": "input",
+      "response": "output"
+    }
+  }
+}
