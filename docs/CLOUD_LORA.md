@@ -57,9 +57,11 @@ import 时会 patch torch 的 inductor，与较新/不匹配的 torch（如 CUDA
 兼容端点服务短文本打标，用不到 vLLM 的高吞吐，故自带最小实现，依赖面小、与训练同环境。
 
 ```bash
-uv sync --extra finetune --extra serve   # serve=fastapi+uvicorn（与 finetune 一起装）
+# serve_lora.sh 会自动补装 fastapi/uvicorn（只装这两个纯 Python 包，不动你已装好的 torch），
+# 并用 `uv run --no-sync` 在当前环境直接运行，避免 uv 重新同步把 torch 换成 CPU/错配 CUDA 版本。
 bash scripts/serve_lora.sh               # 起 OpenAI 兼容端点，默认 :8000
 #   PORT=8000 LORA_SERVER_API_KEY=mysecret bash scripts/serve_lora.sh
+#   手动补依赖也可：uv pip install fastapi uvicorn（切勿用 `uv sync --extra serve`，它可能重装 torch）
 
 # 另开一个终端，把端口映射出公网（任选其一）
 cloudflared tunnel --url http://localhost:8000

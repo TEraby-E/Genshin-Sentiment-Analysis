@@ -179,7 +179,7 @@ genshin-sentiment-analysis/
 │   ├── build_finetune_dataset.py  # 分层抽样 + DeepSeek 标注 + 高置信筛选 + 切分
 │   ├── train_sentiment.py         # 知识蒸馏：LLM 标注 → 训练轻量分类器
 │   ├── eval_lora.py               # 留出集评估（准确率 / 宏 F1 / 反讽错例）
-│   └── serve_lora.sh              # vLLM 起 OpenAI 兼容端点（云端算力轨道）
+│   └── serve_lora.sh              # 自包含 FastAPI 起 OpenAI 兼容端点（云端算力轨道，无 vLLM）
 └── src/
     ├── config.py           # 路径与参数集中管理（含 RAG / LoRA / 端点配置）
     ├── validate.py         # 数据契约校验（列存在性 / 空值率 / 日期解析率）
@@ -197,7 +197,7 @@ genshin-sentiment-analysis/
 ## 技术栈
 
 - **AI / LLM 工程**：DeepSeek-V3 API（OpenAI 兼容协议）、Qwen2.5-7B + LoRA 微调（QLoRA / 4-bit）、RAG 混合检索（稠密向量 + BM25）、知识蒸馏、手写多模型路由 Agent 与 critic 校验
-- **微调与推理**：transformers、peft、bitsandbytes、accelerate（自包含 QLoRA，不依赖 LLaMA-Factory）；可选 vLLM 起云端 OpenAI 兼容端点
+- **微调与推理**：transformers、peft、bitsandbytes、accelerate（自包含 QLoRA，不依赖 LLaMA-Factory）；自包含 FastAPI 端点（`serve` extra）起云端 OpenAI 兼容服务，不依赖 vLLM
 - **数据与建模底座**：pandas、numpy、scikit-learn（TF-IDF / 逻辑回归）
 - **可选检索栈**：纯 numpy 内存向量库（默认）/ ChromaDB + sentence-transformers
 - **应用与工程化**：Streamlit、uv（依赖锁定）、pytest、ruff、mypy、GitHub Actions、Docker

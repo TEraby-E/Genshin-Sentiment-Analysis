@@ -5,9 +5,7 @@
 # 复用已验证可跑的 LocalLLMClassifier（transformers + peft）做推理，对外暴露
 # /v1/chat/completions。规避 vLLM 与较新 torch/CUDA（如 CUDA 13）的导入期冲突。
 #
-# 前置：
-#   uv sync --extra finetune --extra serve     # finetune=torch/transformers/peft；serve=fastapi/uvicorn
-#   # 已在云端跑完 train_lora.sh，适配器在 outputs/finetune/qwen2.5-7b-lora
+# 前置：已在云端跑完 train_lora.sh，适配器在 outputs/finetune/qwen2.5-7b-lora
 #
 # 用法：
 #   bash scripts/serve_lora.sh
@@ -27,7 +25,12 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 PORT="${PORT:-8000}"
 SERVED_NAME="${LORA_SERVER_MODEL:-qwen2.5-7b-lora}"
 
-uv run python -m src.finetune.serve \
+# 只补装两个纯 Python 包（fastapi/uvicorn），不碰已装好的 torch，避免被换成 CPU/错配 CUDA 版本。
+echo "确保 serve 依赖（fastapi/uvicorn）已就绪…"
+uv pip install --quiet "fastapi>=0.110" "uvicorn>=0.29"
+
+# --no-sync：直接在当前 .venv 里运行，不让 uv 重新同步环境（否则会把上面补装的包或你手装的 torch 清掉）。
+uv run --no-sync python -m src.finetune.serve \
     --host "${HOST:-0.0.0.0}" \
     --port "${PORT}" \
     --served-model "${SERVED_NAME}"

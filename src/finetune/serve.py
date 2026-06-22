@@ -71,7 +71,14 @@ def create_app(
 
     fastapi 延迟导入，使本模块的纯函数（build_chat_response）在未装 serve 依赖时也可被引用。
     """
-    from fastapi import FastAPI, Header, HTTPException
+    try:
+        from fastapi import FastAPI, Header, HTTPException
+    except ImportError as e:  # pragma: no cover - 给出可操作的提示，而非裸 ModuleNotFoundError
+        raise SystemExit(
+            "缺少 serve 依赖（fastapi）。请先安装（只装这两个纯 Python 包，不会动 torch）：\n"
+            "    uv pip install fastapi uvicorn\n"
+            "或直接用封装脚本：bash scripts/serve_lora.sh"
+        ) from e
 
     served_model = served_model or config.LORA_SERVER_MODEL
     # 默认沿用 config 里的 key；为 "EMPTY" 或空时视为不鉴权（本地/隧道场景常见）
@@ -128,7 +135,12 @@ def main() -> int:
     parser.add_argument("--served-model", default=config.LORA_SERVER_MODEL)
     args = parser.parse_args()
 
-    import uvicorn
+    try:
+        import uvicorn
+    except ImportError as e:  # pragma: no cover - 友好提示
+        raise SystemExit(
+            "缺少 serve 依赖（uvicorn）。请先：uv pip install fastapi uvicorn"
+        ) from e
 
     app = create_app(served_model=args.served_model)
     logger.info(
