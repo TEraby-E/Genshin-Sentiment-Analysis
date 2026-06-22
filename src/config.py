@@ -85,12 +85,3 @@ LORA_BASE_MODEL = os.getenv("LORA_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 LORA_ADAPTER_DIR = Path(
     os.getenv("LORA_ADAPTER_DIR", str(OUTPUT_DIR / "finetune" / "qwen2.5-7b-lora"))
 )
-
-# ---- 云端自建 LoRA 推理端点（场景 B：本地调用 + 云端算力）----
-# 用 vLLM 等把微调后的 Qwen 起成 OpenAI 兼容服务（可经 Cloudflare/Ngrok 映射出公网地址），
-# 填下面的地址即可让智能路由的 lora_server 轨道接入你自己的云端模型；留空则该轨道自动关闭。
-LORA_SERVER_BASE_URL = os.getenv("LORA_SERVER_BASE_URL") or None
-LORA_SERVER_MODEL = os.getenv("LORA_SERVER_MODEL", "qwen2.5-7b-lora")
-LORA_SERVER_API_KEY = os.getenv("LORA_SERVER_API_KEY", "EMPTY")
-# 若服务端不支持强制 JSON 输出，设为 0/false 以去掉 response_format
-LORA_SERVER_JSON_MODE = os.getenv("LORA_SERVER_JSON_MODE", "1").lower() not in ("0", "false", "no")

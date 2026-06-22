@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from src.agents.base import TagResult
 from src.agents.router import RouterAgent
-from src.agents.tracks import CloudLoRATrack, KeywordTrack, RagLLMTrack
+from src.agents.tracks import KeywordTrack, RagLLMTrack
 from src.agents.verifier import HeuristicVerifier
 
 
@@ -145,55 +145,6 @@ def test_keyword_track_always_available_offline():
     out = track.classify(["抽卡又歪了，真烂"])
     assert out[0].sentiment == "负面"
     assert out[0].track == "keyword"
-
-
-# ---- 场景 B：云端自建 LoRA 端点轨道 ----
-
-
-def test_cloud_lora_track_available_with_injected_client():
-    payload = '{"results": [{"id": 0, "sentiment": "负面", "aspects": ["抽卡"], "reason": "歪了"}]}'
-    track = CloudLoRATrack(client=_FakeClient(payload))
-    assert track.is_available()
-    out = track.classify(["抽卡又歪了"])
-    assert out[0].track == "lora_server"
-    assert out[0].sentiment == "负面"
-
-
-def test_cloud_lora_track_disabled_when_unconfigured():
-    # 不注入 client 且未配置 LORA_SERVER_BASE_URL → 轨道关闭
-    assert CloudLoRATrack().is_available() is False
-
-
-def test_router_prefers_cloud_lora_for_hard_comment():
-    kw = KeywordTrack()
-    payload = '{"results": [{"id": 0, "sentiment": "负面", "aspects": [], "reason": "x"}]}'
-    cloud = CloudLoRATrack(client=_FakeClient(payload))
-    r = _router([kw, cloud])
-    out = r.tag(["这次又歪了，保底白给，策划在拷打玩家"])
-    assert out[0].track == "lora_server"  # 难句优先走自建语义轨道，而非更贵的 DeepSeek
-
-
-def test_served_llm_client_forces_model_and_can_strip_json():
-    from src.llm_client import ServedLLMClient
-
-    captured: dict = {}
-
-    class _Inner:
-        def __init__(self):
-            self.chat = self
-            self.completions = self
-
-        def create(self, **kwargs):
-            captured.update(kwargs)
-            return "resp"
-
-    client = ServedLLMClient(model="my-lora", json_mode=False, _inner=_Inner())
-    out = client.chat.completions.create(
-        model="ignored", response_format={"type": "json_object"}, messages=[]
-    )
-    assert out == "resp"
-    assert captured["model"] == "my-lora"  # 强制改写为自建端点的模型名
-    assert "response_format" not in captured  # json_mode=False 时去掉
 
 
 def test_router_from_environment_runs_offline():

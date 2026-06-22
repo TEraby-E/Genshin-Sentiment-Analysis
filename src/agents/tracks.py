@@ -134,7 +134,7 @@ def _classify_via_openai(
     track_name: str,
     confidence: float,
 ) -> list[TagResult]:
-    """走 OpenAI 兼容接口做语义打标的共用实现（DeepSeek 与自建端点都复用它）。
+    """走 OpenAI 兼容接口（DeepSeek）做语义打标的共用实现。
 
     若给了 retriever，则先检索评论里黑话的释义注入系统提示，对抗按字面误判。
     """
@@ -190,44 +190,10 @@ class RagLLMTrack:
         )
 
 
-class CloudLoRATrack:
-    """云端自建 LoRA 端点轨道（场景 B）：调用你用 vLLM 等部署的微调 Qwen（OpenAI 兼容）。
-
-    与进程内 LoRATrack 等价的「语义本地模型」能力，但算力在云端、本地零显存，
-    且不消耗 DeepSeek 额度；复用 llm_client 的 OpenAI 协议，也能叠加 RAG 黑话接地。
-    未配置 LORA_SERVER_BASE_URL（且未注入 client）时该轨道自动关闭。
-    """
-
-    name = "lora_server"
-    cost = 2
-
-    def __init__(self, *, client: Any | None = None, retriever: Any | None = None) -> None:
-        if client is not None:
-            self.client = client
-        else:
-            from .. import llm_client
-
-            self.client = llm_client.get_served_client()
-        self.retriever = retriever
-
-    def is_available(self) -> bool:
-        return self.client is not None
-
-    def classify(self, texts: list[str]) -> list[TagResult]:
-        return _classify_via_openai(
-            texts,
-            client=self.client,
-            retriever=self.retriever,
-            track_name=self.name,
-            confidence=0.7,
-        )
-
-
 def build_default_tracks(
     *,
     client: Any | None = None,
     retriever: Any | None = None,
-    served_client: Any | None = None,
     distilled_path: str | Path | None = None,
     lora_adapter: str | Path | None = None,
 ) -> list[TaggingTrack]:
@@ -237,12 +203,7 @@ def build_default_tracks(
         DistilledTrack(distilled_path),
         RagLLMTrack(client=client, retriever=retriever),
     ]
-    # 云端自建 LoRA 端点（场景 B）：未配置地址时 is_available 自动为 False
-    try:
-        tracks.append(CloudLoRATrack(client=served_client, retriever=retriever))
-    except Exception as e:  # noqa: BLE001 - 构造失败不阻塞其余轨道
-        logger.info("云端 LoRA 轨道不可用，跳过：%s", e)
-    # 进程内 LoRA（需本地 GPU + 适配器）
+    # 进程内本地 LoRA（需本地 GPU + 适配器）
     try:
         tracks.append(LoRATrack(lora_adapter))
     except Exception as e:  # noqa: BLE001 - 缺 finetune 依赖时不阻塞其余轨道

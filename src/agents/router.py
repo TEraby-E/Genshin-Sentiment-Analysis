@@ -59,7 +59,6 @@ class RouterAgent:
         *,
         client: Any | None = None,
         retriever: Any | None = None,
-        served_client: Any | None = None,
         verifier: Verifier | None = None,
         distilled_path: Any | None = None,
         lora_adapter: Any | None = None,
@@ -69,7 +68,6 @@ class RouterAgent:
         tracks = build_default_tracks(
             client=client,
             retriever=retriever,
-            served_client=served_client,
             distilled_path=distilled_path,
             lora_adapter=lora_adapter,
         )
@@ -88,8 +86,8 @@ class RouterAgent:
         return Difficulty(score=round(score, 3), jargon=jargon, irony=irony, length=length)
 
     def _semantic_tracks(self) -> list[TaggingTrack]:
-        """阶梯中具备语义理解能力的轨道（云端/本地 LoRA、RAG-LLM）。"""
-        return [t for t in self.ladder if t.name in ("lora_server", "lora", "rag_llm")]
+        """阶梯中具备语义理解能力的轨道（本地 LoRA、RAG-LLM）。"""
+        return [t for t in self.ladder if t.name in ("lora", "rag_llm")]
 
     def initial_track(self, diff: Difficulty) -> TaggingTrack:
         """选起步轨道：难的直接起步于最省的语义轨道，容易的走最省的轨道。"""

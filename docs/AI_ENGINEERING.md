@@ -77,7 +77,6 @@
 - **检索-推理-校验三角（compute allocation strategy）**：进入语义轨道的评论触发「检索证据（RAG）→ LLM 推理 → critic 校验」；校验不通过则沿成本阶梯升一档重判（keyword→distilled→lora→rag_llm），把贵算力**只花在 critic 认为值得的样本上**。
 - **critic 双档**：默认 `HeuristicVerifier`（词典极性冲突检测 + 完整性，零成本、确定性），可选 `LLMVerifier`（LLM 评审员，准但有成本）（`src/agents/verifier.py`）；硬冲突（字面强烈一极、判定相反）直接打回并给出纠正。
 - **环境自适应 + 批量分组**：不可用轨道（无 API / 无 GPU / 无模型）被自动过滤，离线时优雅退化到关键词 / 蒸馏；同轨道评论分组批量调用以摊薄 token。整套逻辑用 fake 轨道 + fake client 全覆盖，CI 无任何外部资源即可验证路由/升档/校验。
-- **本地调用 + 云端算力（场景 B）**：把微调后的 Qwen 用 vLLM 部署成 OpenAI 兼容端点后，`ServedLLMClient` 包住标准 OpenAI 客户端并强制改写模型名，让既有打标流程零改动地切到自建端点；路由因此多出一条成本低于付费 DeepSeek 的 `lora_server` 轨道，难句优先走自训模型（`src/llm_client.py`、`src/agents/tracks.py`，部署见 `docs/CLOUD_LORA.md`）。
 
 ---
 
@@ -88,8 +87,6 @@
 | 输出校验/对齐/兜底 | `text_pipeline._normalize_result` |
 | 重试 / 批失败隔离 / 降级 | `llm_client.chat_json`, `text_pipeline.classify_with_llm` |
 | 知识蒸馏（LLM 标注→轻量分类器） | `src/sentiment_train.py`, `scripts/train_sentiment.py` |
-| 语义总结 / 关键词加权词云 | `text_pipeline.summarize_*`, `src/wordcloud_gen.py` |
-| 数据驱动选型（覆盖率论证） | `scripts/keyword_vs_ai.py` |
 | 检索增强（RAG）：向量库 / 嵌入 / 混合检索 / 异步入库 | `src/rag/`（`vector_store.py`, `embeddings.py`, `retriever.py`, `ingestion.py`） |
 | RAG 黑话拦截与上下文注入 | `text_pipeline.detect_jargon` / `build_jargon_context` |
 | 本地 LoRA 微调（QLoRA）+ 数据集构建/评估 | `src/finetune/`（`dataset_formatter.py`, `train_lora.py`, `evaluate.py`, `train_lora.sh`）, `scripts/build_finetune_dataset.py`, `scripts/eval_lora.py` |

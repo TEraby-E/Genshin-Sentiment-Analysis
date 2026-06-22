@@ -10,7 +10,6 @@ from __future__ import annotations
 from .base import Difficulty, TaggingTrack, TagResult, Verdict, Verifier
 from .router import RouterAgent
 from .tracks import (
-    CloudLoRATrack,
     DistilledTrack,
     KeywordTrack,
     LoRATrack,
@@ -30,7 +29,6 @@ __all__ = [
     "DistilledTrack",
     "LoRATrack",
     "RagLLMTrack",
-    "CloudLoRATrack",
     "build_default_tracks",
     "HeuristicVerifier",
     "LLMVerifier",
