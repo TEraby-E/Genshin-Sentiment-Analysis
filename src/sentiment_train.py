@@ -13,12 +13,17 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from . import config, text_pipeline
+
+# 国内云主机直连 huggingface.co 会卡死（新版 transformers 加载 tokenizer 时会联网探测
+# 模型类型）。在导入重依赖之前就把端点指向镜像，让任何回退的网络请求走 hf-mirror。
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +185,17 @@ class LocalLLMClassifier:
                 bnb_4bit_use_double_quant=True,
             )
 
-        self._tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        # 分词器优先从本地适配器目录读（train_lora.sh 已把它一并保存）。用本地路径能绕过
+        # 新版 transformers 对仓库名做的联网探测（is_base_mistral → model_info），
+        # 否则在无法直连 huggingface.co 的国内云主机上会一直卡在网络请求里。
+        has_local_tok = (self.adapter_path / "tokenizer_config.json").exists()
+        tok_dir = self.adapter_path if has_local_tok else None
+        if tok_dir is not None:
+            logger.info("从本地适配器目录加载分词器：%s", tok_dir)
+            self._tokenizer = AutoTokenizer.from_pretrained(str(tok_dir))
+        else:
+            logger.info("适配器目录无分词器，回退到基座仓库（经 HF 镜像）：%s", self.base_model)
+            self._tokenizer = AutoTokenizer.from_pretrained(self.base_model)
         logger.info("分词器就绪，正在加载基座权重…")
         base = AutoModelForCausalLM.from_pretrained(
             self.base_model, device_map="auto", torch_dtype=torch.bfloat16, **quant_kwargs
