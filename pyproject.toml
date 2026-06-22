@@ -2,6 +2,7 @@
 name = "genshin-sentiment-analysis"
 version = "0.1.0"
 description = "原神 B 站舆情智能路由打标 —— 多模型路由 Agent + 本地 LoRA 微调"
+readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [

@@ -20,7 +20,7 @@ WORKDIR /app
 
 # 先只装依赖，最大化利用 Docker 层缓存（依赖没变就不重装）；
 # --mount=type=cache 复用 uv 下载缓存，重建时不必再下一遍（需 BuildKit，compose 默认已启用）。
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --extra dashboard --extra llm
 
