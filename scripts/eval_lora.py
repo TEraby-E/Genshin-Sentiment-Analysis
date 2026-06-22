@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -47,6 +48,10 @@ def _build_predictor(name: str) -> Predictor:
 
 
 def main() -> int:
+    # 让 src.sentiment_train 里的加载/推理进度日志显示出来（否则 lora 模式长时间静默像卡死）
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr
+    )
     parser = argparse.ArgumentParser(description="留出评估 + 错例分析（第 3 步）")
     parser.add_argument(
         "--eval-set", default=str(config.OUTPUT_DIR / "finetune" / "eval.jsonl")
@@ -66,12 +71,19 @@ def main() -> int:
         return 1
 
     texts, gold = load_eval_set(args.eval_set)
+    print(f"已加载留出集 {len(texts)} 条（{args.eval_set}）", flush=True)
     try:
         predictor = _build_predictor(args.predictor)
     except Exception as e:  # noqa: BLE001 - 预测器不可用时明确报错
         print(f"预测器 {args.predictor} 不可用：{e}", file=sys.stderr)
         return 1
 
+    if args.predictor == "lora":
+        print(
+            "开始评估：lora 模式会先加载 7B 大模型（可能 1-2 分钟），"
+            "随后按条打印推理进度。",
+            flush=True,
+        )
     report = evaluate(predictor, texts, gold)
     print(f"[{args.predictor}] {report.summary()}")
     print(f"混淆矩阵（行=金标，列=预测，标签序 {report.labels}）：")

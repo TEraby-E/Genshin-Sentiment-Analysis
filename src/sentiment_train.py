@@ -165,6 +165,10 @@ class LocalLLMClassifier:
         from peft import PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        logger.info(
+            "加载 LoRA 大模型：base=%s adapter=%s（4bit=%s，首次加载较慢，请耐心等待）",
+            self.base_model, self.adapter_path, self.load_in_4bit,
+        )
         quant_kwargs: dict[str, Any] = {}
         if self.load_in_4bit:
             from transformers import BitsAndBytesConfig
@@ -177,10 +181,13 @@ class LocalLLMClassifier:
             )
 
         self._tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        logger.info("分词器就绪，正在加载基座权重…")
         base = AutoModelForCausalLM.from_pretrained(
             self.base_model, device_map="auto", torch_dtype=torch.bfloat16, **quant_kwargs
         )
+        logger.info("基座就绪，正在注入 LoRA 适配器…")
         self._model = PeftModel.from_pretrained(base, str(self.adapter_path)).eval()
+        logger.info("✅ LoRA 大模型加载完成，开始推理")
         return self
 
     def _build_messages(self, text: str) -> list[dict[str, str]]:
@@ -213,8 +220,10 @@ class LocalLLMClassifier:
             self.load()
         import torch
 
+        n = len(texts)
+        step = max(1, n // 20)  # 大约打印 20 次进度，避免刷屏
         out: list[str] = []
-        for text in texts:
+        for i, text in enumerate(texts, 1):
             clean = text_pipeline.clean_text(text)
             prompt = self._tokenizer.apply_chat_template(
                 self._build_messages(clean), tokenize=False, add_generation_prompt=True
@@ -228,4 +237,6 @@ class LocalLLMClassifier:
                 gen[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
             )
             out.append(self._parse_label(decoded))
+            if i == 1 or i % step == 0 or i == n:
+                logger.info("LoRA 推理进度 %d/%d", i, n)
         return out
