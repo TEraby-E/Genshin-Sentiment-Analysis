@@ -231,7 +231,7 @@ def test_load_records_reads_jsonl(tmp_path):
     assert recs[0]["input"] == "b"
 
 
-# ---- 场景 B：自包含 OpenAI 兼容端点（不依赖 GPU；fastapi 缺失时自动跳过应用级测试）----
+# ---- 场景 B：自包含 OpenAI 兼容端点（纯标准库，无 GPU/无 fastapi，CI 直接跑）----
 
 
 def test_build_chat_response_shape():
@@ -247,7 +247,7 @@ def test_build_chat_response_shape():
 
 
 class _FakeGenerator:
-    """假生成器：把收到的最后一条 user 消息回显成 JSON，免 GPU 测端点协议。"""
+    """假生成器：记录收到的消息并回显固定 JSON，免 GPU 测端点协议。"""
 
     def __init__(self) -> None:
         self.calls: list[list[dict[str, str]]] = []
@@ -257,53 +257,88 @@ class _FakeGenerator:
         return '{"sentiment": "负面", "aspects": ["抽卡"]}'
 
 
-def test_chat_completions_endpoint_roundtrip():
-    pytest.importorskip("fastapi")
-    pytest.importorskip("starlette")
-    from starlette.testclient import TestClient
+class _ServerThread:
+    """在后台线程起一个真实的 http.server 端点，用 urllib 打它，测完即关。"""
 
-    from src.finetune.serve import create_app
+    def __init__(self, generator, *, api_key="EMPTY"):
+        import threading
 
+        from src.finetune.serve import build_server
+
+        self.httpd = build_server(
+            generator, host="127.0.0.1", port=0, served_model="qwen2.5-7b-lora", api_key=api_key
+        )
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=5)
+
+    def request(self, method, path, *, body=None, headers=None):
+        import urllib.error
+        import urllib.request
+
+        url = f"http://127.0.0.1:{self.port}{path}"
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def test_endpoint_health_and_models():
+    with _ServerThread(_FakeGenerator()) as s:
+        code, body = s.request("GET", "/health")
+        assert code == 200 and body["status"] == "ok"
+        code, body = s.request("GET", "/v1/models")
+        assert body["data"][0]["id"] == "qwen2.5-7b-lora"
+
+
+def test_endpoint_chat_completions_roundtrip():
     gen = _FakeGenerator()
-    app = create_app(gen, served_model="qwen2.5-7b-lora", api_key="EMPTY")
-    client = TestClient(app)
-
-    assert client.get("/health").json()["status"] == "ok"
-    assert client.get("/v1/models").json()["data"][0]["id"] == "qwen2.5-7b-lora"
-
-    r = client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "ignored-name",
-            "messages": [
-                {"role": "system", "content": "你是舆情助手"},
-                {"role": "user", "content": "这次又歪了"},
-            ],
-            "temperature": 0,
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
+    with _ServerThread(gen) as s:
+        code, body = s.request(
+            "POST",
+            "/v1/chat/completions",
+            body={
+                "model": "ignored-name",
+                "messages": [
+                    {"role": "system", "content": "你是舆情助手"},
+                    {"role": "user", "content": "这次又歪了"},
+                ],
+                "temperature": 0,
+            },
+            headers={"Content-Type": "application/json"},
+        )
+    assert code == 200
     assert body["model"] == "qwen2.5-7b-lora"  # 端点强制对外模型名
     assert json.loads(body["choices"][0]["message"]["content"])["sentiment"] == "负面"
     assert gen.calls and gen.calls[0][-1]["content"] == "这次又歪了"
 
 
-def test_chat_completions_requires_api_key_when_set():
-    pytest.importorskip("fastapi")
-    pytest.importorskip("starlette")
-    from starlette.testclient import TestClient
-
-    from src.finetune.serve import create_app
-
-    app = create_app(_FakeGenerator(), served_model="m", api_key="secret")
-    client = TestClient(app)
+def test_endpoint_requires_api_key_when_set():
     payload = {"messages": [{"role": "user", "content": "x"}]}
+    with _ServerThread(_FakeGenerator(), api_key="secret") as s:
+        code, _ = s.request("POST", "/v1/chat/completions", body=payload)
+        assert code == 401
+        code, _ = s.request(
+            "POST",
+            "/v1/chat/completions",
+            body=payload,
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert code == 200
 
-    assert client.post("/v1/chat/completions", json=payload).status_code == 401
-    ok = client.post(
-        "/v1/chat/completions",
-        json=payload,
-        headers={"Authorization": "Bearer secret"},
-    )
-    assert ok.status_code == 200
+
+def test_endpoint_rejects_empty_messages():
+    with _ServerThread(_FakeGenerator()) as s:
+        code, body = s.request("POST", "/v1/chat/completions", body={"messages": []})
+    assert code == 400

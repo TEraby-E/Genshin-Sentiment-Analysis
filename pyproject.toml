@@ -47,13 +47,8 @@ finetune = [
     "bitsandbytes>=0.43",
     "accelerate>=0.30",
 ]
-# 可选依赖：把微调模型起成 OpenAI 兼容端点（src/finetune/serve.py，场景 B）。
-# 自带最小 FastAPI 服务，复用 finetune 的推理栈，规避 vLLM 与新版 torch 的冲突。
-# 需与 finetune 一起装：uv sync --extra finetune --extra serve
-serve = [
-    "fastapi>=0.110",
-    "uvicorn>=0.29",
-]
+# 说明：把微调模型起成 OpenAI 兼容端点（src/finetune/serve.py，场景 B）不需要任何额外依赖，
+# 端点用 Python 标准库 http.server 实现，直接复用 finetune 的推理栈即可，无需 fastapi/uvicorn/vLLM。
 # 开发工具
 dev = [
     "ruff>=0.4",

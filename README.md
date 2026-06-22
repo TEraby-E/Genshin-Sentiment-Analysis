@@ -74,8 +74,8 @@ app 镜像是 CPU 版，含看板、DeepSeek 打标与离线 RAG；`data/` 与 `
 
 笔记本无 GPU，本地 LoRA 大模型这条轨道由外部 GPU 容器提供、本地远程调用，不在本机加载 7B 权重：
 
-- **远程云 GPU（推荐）**：在 AutoDL / RunPod 上微调，再用自包含的 FastAPI 端点（`bash scripts/serve_lora.sh`，不依赖 vLLM）起服务，用 cloudflared / ngrok 映射公网地址，本地只需在 `.env` 填 `LORA_SERVER_BASE_URL=https://xxxx.trycloudflare.com/v1`。
-- **自有 GPU 主机**：在该主机上 `uv sync --extra finetune --extra serve` 后 `bash scripts/serve_lora.sh` 起端点，本地用 `LORA_SERVER_BASE_URL=http://<主机IP>:8000/v1` 直连。
+- **远程云 GPU（推荐）**：在 AutoDL 上微调，再用自包含的 FastAPI 端点（`bash scripts/serve_lora.sh`，不依赖 vLLM）起在 `:8000`。只给本地用时无需公网地址——在笔记本开一条 SSH 隧道 `ssh -p <端口> root@<host> -L 8000:localhost:8000 -N`，本地 `.env` 填 `LORA_SERVER_BASE_URL=http://localhost:8000/v1` 即可。
+- **需要公网 URL**：再在云端用 cloudflared / ngrok 或 AutoDL「自定义服务」映射 `:8000`，把 https 地址填进 `LORA_SERVER_BASE_URL`。
 
 接好后本地一行代码都不用改，智能路由会自动多出 `lora_server` 轨道。云端部署的逐步命令见 [docs/CLOUD_LORA.md](docs/CLOUD_LORA.md)。
 
@@ -197,7 +197,7 @@ genshin-sentiment-analysis/
 ## 技术栈
 
 - **AI / LLM 工程**：DeepSeek-V3 API（OpenAI 兼容协议）、Qwen2.5-7B + LoRA 微调（QLoRA / 4-bit）、RAG 混合检索（稠密向量 + BM25）、知识蒸馏、手写多模型路由 Agent 与 critic 校验
-- **微调与推理**：transformers、peft、bitsandbytes、accelerate（自包含 QLoRA，不依赖 LLaMA-Factory）；自包含 FastAPI 端点（`serve` extra）起云端 OpenAI 兼容服务，不依赖 vLLM
+- **微调与推理**：transformers、peft、bitsandbytes、accelerate（自包含 QLoRA，不依赖 LLaMA-Factory）；OpenAI 兼容推理端点用 Python 标准库实现，零额外依赖，不依赖 vLLM/FastAPI
 - **数据与建模底座**：pandas、numpy、scikit-learn（TF-IDF / 逻辑回归）
 - **可选检索栈**：纯 numpy 内存向量库（默认）/ ChromaDB + sentence-transformers
 - **应用与工程化**：Streamlit、uv（依赖锁定）、pytest、ruff、mypy、GitHub Actions、Docker

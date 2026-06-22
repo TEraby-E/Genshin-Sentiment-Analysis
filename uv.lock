@@ -1344,23 +1344,6 @@ wheels = [
 ]
 
 [[package]]
-name = "fastapi"
-version = "0.138.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "annotated-doc" },
-    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pydantic", version = "2.12.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "starlette" },
-    { name = "typing-extensions" },
-    { name = "typing-inspection" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/58/ff455d9fe47c60abadb34b9e05a304b1f05f5ab8000ac01565156b6f5e43/fastapi-0.138.0.tar.gz", hash = "sha256:d445a4877636ad191e7053e08c9bf98cb921a6756776848400bb773d1740c061", size = 419240, upload-time = "2026-06-20T01:18:05.259Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/ff/8496d9847a5fedae775eb49460722d3efaa80487854273e9647ae876218c/fastapi-0.138.0-py3-none-any.whl", hash = "sha256:b6f54fd1bd72c80b0f899f172c61a600f6f7af9b43d4d772a018f35624048cb0", size = 126779, upload-time = "2026-06-20T01:18:03.483Z" },
-]
-
-[[package]]
 name = "fastjsonschema"
 version = "2.21.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1631,10 +1614,6 @@ rag = [
     { name = "chromadb" },
     { name = "sentence-transformers" },
 ]
-serve = [
-    { name = "fastapi" },
-    { name = "uvicorn" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -1642,7 +1621,6 @@ requires-dist = [
     { name = "altair", marker = "extra == 'dashboard'", specifier = ">=5.0" },
     { name = "bitsandbytes", marker = "extra == 'finetune'", specifier = ">=0.43" },
     { name = "chromadb", marker = "extra == 'rag'", specifier = ">=0.5" },
-    { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.110" },
     { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "matplotlib", specifier = ">=3.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
@@ -1661,9 +1639,8 @@ requires-dist = [
     { name = "streamlit", marker = "extra == 'dashboard'", specifier = ">=1.30" },
     { name = "torch", marker = "extra == 'finetune'", specifier = ">=2.1" },
     { name = "transformers", marker = "extra == 'finetune'", specifier = ">=4.45" },
-    { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.29" },
 ]
-provides-extras = ["llm", "dashboard", "rag", "finetune", "serve", "dev"]
+provides-extras = ["llm", "dashboard", "rag", "finetune", "dev"]
 
 [[package]]
 name = "gitdb"

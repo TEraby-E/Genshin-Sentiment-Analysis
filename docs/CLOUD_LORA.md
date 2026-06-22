@@ -5,13 +5,14 @@
 协议直连云端服务，路由的 `lora_server` 轨道会自动接入。
 
 ```
-云端 GPU（AutoDL/RunPod）           本地（笔记本，无 GPU）
+云端 GPU（AutoDL）                  本地（笔记本，无 GPU）
 ┌─────────────────────────┐        ┌──────────────────────────┐
 │ git clone + 下载数据集   │        │ 智能路由 RouterAgent      │
 │ train_lora.sh  → 适配器  │        │  ├ keyword / distilled    │
-│ serve_lora.sh  → FastAPI │  HTTP  │  ├ rag_llm（DeepSeek）     │
-│ cloudflared    → 公网URL │◄───────│  └ lora_server（你的Qwen）│
+│ serve_lora.sh  → :8000   │  SSH   │  ├ rag_llm（DeepSeek）     │
+│ （FastAPI 端点）         │◄═隧道═►│  └ lora_server（你的Qwen）│
 └─────────────────────────┘        └──────────────────────────┘
+  实例 localhost:8000  ◄── ssh -L 8000:localhost:8000 ──  笔记本 localhost:8000
 ```
 
 ## 一、云端：微调
@@ -48,27 +49,22 @@ bash src/finetune/train_lora.sh     # QLoRA 微调，适配器产物在 outputs/
 > 适配器只有几十 MB，可以下回本地存档；但**不要在本地无 GPU 的机器上加载 7B 推理**，
 > 那会退化成 CPU 慢推。推理交给下一步的云端服务。
 
-## 二、云端：起推理服务并暴露公网
+## 二、云端：起推理服务（监听本机端口即可）
 
-推理端点是**自包含的 FastAPI 服务**（`src/finetune/serve.py`），复用训练同款的
-transformers + peft 推理栈，对外暴露 `/v1/chat/completions`。**不用 vLLM**——vLLM 在
-import 时会 patch torch 的 inductor，与较新/不匹配的 torch（如 CUDA 13 构建）冲突，直接
-崩在导入阶段（`AssertionError: duplicate template name`）。本项目只需把 7B 起成 OpenAI
-兼容端点服务短文本打标，用不到 vLLM 的高吞吐，故自带最小实现，依赖面小、与训练同环境。
+推理端点（`src/finetune/serve.py`）用 **Python 标准库 `http.server`** 实现，复用训练同款的
+transformers + peft 推理栈，对外暴露 `/v1/chat/completions`。**不需要安装任何额外依赖**
+（不用 fastapi/uvicorn，更不用 vLLM）——直接跑在已装好 torch 的那个环境里，彻底避开依赖
+同步问题。vLLM 之所以弃用：它 import 时会 patch torch 的 inductor，与较新/不匹配的 torch
+（如 CUDA 13 构建）冲突，直接崩在导入阶段（`AssertionError: duplicate template name`）。
 
 ```bash
-# serve_lora.sh 会自动补装 fastapi/uvicorn（只装这两个纯 Python 包，不动你已装好的 torch），
-# 并用 `uv run --no-sync` 在当前环境直接运行，避免 uv 重新同步把 torch 换成 CPU/错配 CUDA 版本。
-bash scripts/serve_lora.sh               # 起 OpenAI 兼容端点，默认 :8000
+# 零额外安装，直接起。--no-sync 让 uv 不重新同步环境，避免动到已装好的 CUDA torch。
+bash scripts/serve_lora.sh               # 起 OpenAI 兼容端点，监听 0.0.0.0:8000
 #   PORT=8000 LORA_SERVER_API_KEY=mysecret bash scripts/serve_lora.sh
-#   手动补依赖也可：uv pip install fastapi uvicorn（切勿用 `uv sync --extra serve`，它可能重装 torch）
-
-# 另开一个终端，把端口映射出公网（任选其一）
-cloudflared tunnel --url http://localhost:8000
-# 或 ngrok http 8000
+#   不用 uv 时，在已装 torch 的 conda 环境里直接：python -m src.finetune.serve --port 8000
 ```
 
-记下隧道给出的 `https://xxxx.trycloudflare.com` 地址。先本机自测端点是否正常：
+在**云端实例本机**先自测端点是否正常（另开一个云端终端）：
 
 ```bash
 curl http://localhost:8000/health      # → {"status":"ok","model":"qwen2.5-7b-lora"}
@@ -78,15 +74,42 @@ curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/jso
 }'
 ```
 
-## 三、本地：填 .env，路由自动接入
+## 三、本地：用 SSH 隧道把端口接到笔记本（AutoDL，只给本地用）
 
-在本地 `.env` 填上云端地址（其余配置已就绪）：
+只给自己本地电脑调用时，**不需要公网 URL、不需要 cloudflared/ngrok**。用一条 SSH
+本地端口转发，把笔记本的 `localhost:8000` 直接打到云端实例的 `localhost:8000` 即可，
+既零额外软件、又不把模型暴露到公网。
 
-```bash
-LORA_SERVER_BASE_URL=https://xxxx.trycloudflare.com/v1
-LORA_SERVER_MODEL=qwen2.5-7b-lora
-LORA_SERVER_API_KEY=EMPTY            # 若 serve 时设了 --api-key，这里填同一个
-```
+1. 在 AutoDL 控制台复制实例的 SSH 登录信息（形如
+   `ssh -p 36000 root@region-x.autodl.com`，外加一个登录密码）。
+
+2. 在**你笔记本**上开隧道（保持这个终端不关，它就是隧道；`-N` 表示只转发不登录 shell）：
+
+   ```bash
+   # 把 AutoDL 给的 -p 端口和 host 换进来；登录密码按提示输入
+   ssh -p 36000 root@region-x.autodl.com -L 8000:localhost:8000 -N
+   ```
+
+   > Windows 自带 ssh（PowerShell / Git Bash 均可）。想后台常驻可加 `-f`：
+   > `ssh -fN -p 36000 root@... -L 8000:localhost:8000`。
+
+3. 隧道开着时，笔记本访问 `http://localhost:8000` 就等于访问云端端点。本地 `.env` 填：
+
+   ```bash
+   LORA_SERVER_BASE_URL=http://localhost:8000/v1
+   LORA_SERVER_MODEL=qwen2.5-7b-lora
+   LORA_SERVER_API_KEY=EMPTY            # 若 serve 时设了 --api-key，这里填同一个
+   ```
+
+4. 本地自测隧道是否通：
+
+   ```bash
+   curl http://localhost:8000/health    # 应返回 {"status":"ok",...}
+   ```
+
+> 需要真正的公网地址（多设备/分享）时，再在云端用 `cloudflared tunnel --url http://localhost:8000`
+> 或 AutoDL「自定义服务」（代理 6006 端口，需把 `PORT=6006` 起服务），把得到的 https 地址
+> 填进 `LORA_SERVER_BASE_URL`。但只给本地用，上面的 SSH 隧道最省心。
 
 之后无需改任何代码：
 
