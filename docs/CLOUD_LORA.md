@@ -9,7 +9,7 @@
 ┌─────────────────────────┐        ┌──────────────────────────┐
 │ git clone + 下载数据集   │        │ 智能路由 RouterAgent      │
 │ train_lora.sh  → 适配器  │        │  ├ keyword / distilled    │
-│ serve_lora.sh  → vLLM    │  HTTP  │  ├ rag_llm（DeepSeek）     │
+│ serve_lora.sh  → FastAPI │  HTTP  │  ├ rag_llm（DeepSeek）     │
 │ cloudflared    → 公网URL │◄───────│  └ lora_server（你的Qwen）│
 └─────────────────────────┘        └──────────────────────────┘
 ```
@@ -50,15 +50,31 @@ bash src/finetune/train_lora.sh     # QLoRA 微调，适配器产物在 outputs/
 
 ## 二、云端：起推理服务并暴露公网
 
+推理端点是**自包含的 FastAPI 服务**（`src/finetune/serve.py`），复用训练同款的
+transformers + peft 推理栈，对外暴露 `/v1/chat/completions`。**不用 vLLM**——vLLM 在
+import 时会 patch torch 的 inductor，与较新/不匹配的 torch（如 CUDA 13 构建）冲突，直接
+崩在导入阶段（`AssertionError: duplicate template name`）。本项目只需把 7B 起成 OpenAI
+兼容端点服务短文本打标，用不到 vLLM 的高吞吐，故自带最小实现，依赖面小、与训练同环境。
+
 ```bash
-pip install "vllm>=0.5"
-bash scripts/serve_lora.sh          # vLLM 把基座 + LoRA 起成 OpenAI 兼容端点，默认 :8000
+uv sync --extra finetune --extra serve   # serve=fastapi+uvicorn（与 finetune 一起装）
+bash scripts/serve_lora.sh               # 起 OpenAI 兼容端点，默认 :8000
+#   PORT=8000 LORA_SERVER_API_KEY=mysecret bash scripts/serve_lora.sh
+
 # 另开一个终端，把端口映射出公网（任选其一）
 cloudflared tunnel --url http://localhost:8000
 # 或 ngrok http 8000
 ```
 
-记下隧道给出的 `https://xxxx.trycloudflare.com` 地址。
+记下隧道给出的 `https://xxxx.trycloudflare.com` 地址。先本机自测端点是否正常：
+
+```bash
+curl http://localhost:8000/health      # → {"status":"ok","model":"qwen2.5-7b-lora"}
+curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
+  "model":"qwen2.5-7b-lora",
+  "messages":[{"role":"user","content":"这次又歪了，保底白给"}]
+}'
+```
 
 ## 三、本地：填 .env，路由自动接入
 

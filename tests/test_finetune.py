@@ -120,6 +120,54 @@ def test_evaluate_finds_errors_and_flags_irony():
     assert rep.accuracy == 0.5
     assert len(rep.errors) == 1
     assert rep.errors[0]["irony"] is True  # “好家伙”被标为疑似反讽
+    assert rep.predictions == ["正面", "正面"]  # 逐条预测被保留，供报告/CSV 使用
+
+
+def test_build_markdown_report_has_all_sections():
+    from src.finetune.evaluate import build_markdown_report, evaluate
+
+    texts = ["剧情好", "抽卡歪了", "还行吧", "运营太烂"]
+    gold = ["正面", "负面", "中性", "负面"]
+    rep = evaluate(lambda ts: ["正面", "中性", "中性", "负面"], texts, gold)
+    md = build_markdown_report(rep, predictor_name="lora", eval_set="eval.jsonl")
+    assert "# LoRA 微调评估报告" in md
+    assert "## 1. 总体指标" in md
+    assert "## 2. 分类别指标" in md
+    assert "## 3. 混淆矩阵" in md
+    assert "## 4. 主要误差模式" in md
+    for label in ("正面", "中性", "负面"):
+        assert label in md
+
+
+def test_build_markdown_report_with_baselines_adds_comparison():
+    from src.finetune.evaluate import build_markdown_report, evaluate
+
+    texts = ["剧情好", "抽卡歪了"]
+    gold = ["正面", "负面"]
+    main = evaluate(lambda ts: ["正面", "负面"], texts, gold)
+    base = evaluate(lambda ts: ["中性", "中性"], texts, gold)
+    md = build_markdown_report(
+        main, predictor_name="lora", eval_set="eval.jsonl", baselines={"keyword": base}
+    )
+    assert "与基线对比" in md
+    assert "负面召回" in md
+
+
+def test_write_predictions_csv_roundtrip(tmp_path):
+    import csv
+
+    from src.finetune.evaluate import evaluate, write_predictions_csv
+
+    texts = ["剧情好", "这运营真是好家伙"]
+    gold = ["正面", "负面"]
+    rep = evaluate(lambda ts: ["正面", "正面"], texts, gold)
+    out = tmp_path / "preds.csv"
+    write_predictions_csv(out, texts, gold, rep)
+    rows = list(csv.DictReader(out.read_text(encoding="utf-8-sig").splitlines()))
+    assert len(rows) == 2
+    assert rows[0]["是否正确"] == "✓"
+    assert rows[1]["是否正确"] == "✗"
+    assert rows[1]["疑似反讽"] == "是"  # “好家伙”命中反讽标记
 
 
 def test_load_eval_set_roundtrip(tmp_path):
@@ -181,3 +229,81 @@ def test_load_records_reads_jsonl(tmp_path):
     recs = load_records(p)
     assert len(recs) == 2
     assert recs[0]["input"] == "b"
+
+
+# ---- 场景 B：自包含 OpenAI 兼容端点（不依赖 GPU；fastapi 缺失时自动跳过应用级测试）----
+
+
+def test_build_chat_response_shape():
+    from src.finetune.serve import build_chat_response
+
+    resp = build_chat_response('{"sentiment": "负面"}', model="qwen2.5-7b-lora")
+    assert resp["object"] == "chat.completion"
+    assert resp["model"] == "qwen2.5-7b-lora"
+    assert resp["choices"][0]["message"]["role"] == "assistant"
+    assert resp["choices"][0]["message"]["content"] == '{"sentiment": "负面"}'
+    assert resp["choices"][0]["finish_reason"] == "stop"
+    assert "usage" in resp
+
+
+class _FakeGenerator:
+    """假生成器：把收到的最后一条 user 消息回显成 JSON，免 GPU 测端点协议。"""
+
+    def __init__(self) -> None:
+        self.calls: list[list[dict[str, str]]] = []
+
+    def generate_chat(self, messages, *, max_new_tokens=None, temperature=0.0):
+        self.calls.append(messages)
+        return '{"sentiment": "负面", "aspects": ["抽卡"]}'
+
+
+def test_chat_completions_endpoint_roundtrip():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("starlette")
+    from starlette.testclient import TestClient
+
+    from src.finetune.serve import create_app
+
+    gen = _FakeGenerator()
+    app = create_app(gen, served_model="qwen2.5-7b-lora", api_key="EMPTY")
+    client = TestClient(app)
+
+    assert client.get("/health").json()["status"] == "ok"
+    assert client.get("/v1/models").json()["data"][0]["id"] == "qwen2.5-7b-lora"
+
+    r = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "ignored-name",
+            "messages": [
+                {"role": "system", "content": "你是舆情助手"},
+                {"role": "user", "content": "这次又歪了"},
+            ],
+            "temperature": 0,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["model"] == "qwen2.5-7b-lora"  # 端点强制对外模型名
+    assert json.loads(body["choices"][0]["message"]["content"])["sentiment"] == "负面"
+    assert gen.calls and gen.calls[0][-1]["content"] == "这次又歪了"
+
+
+def test_chat_completions_requires_api_key_when_set():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("starlette")
+    from starlette.testclient import TestClient
+
+    from src.finetune.serve import create_app
+
+    app = create_app(_FakeGenerator(), served_model="m", api_key="secret")
+    client = TestClient(app)
+    payload = {"messages": [{"role": "user", "content": "x"}]}
+
+    assert client.post("/v1/chat/completions", json=payload).status_code == 401
+    ok = client.post(
+        "/v1/chat/completions",
+        json=payload,
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert ok.status_code == 200

@@ -22,7 +22,14 @@ import sys
 from pathlib import Path
 
 from src import config
-from src.finetune.evaluate import Predictor, evaluate, load_eval_set
+from src.finetune.evaluate import (
+    EvalReport,
+    Predictor,
+    build_markdown_report,
+    evaluate,
+    load_eval_set,
+    write_predictions_csv,
+)
 
 
 def _build_predictor(name: str) -> Predictor:
@@ -60,7 +67,21 @@ def main() -> int:
         "--predictor", choices=["distilled", "lora", "keyword"], default="distilled"
     )
     parser.add_argument("--show-errors", type=int, default=15, help="打印多少条错例")
-    parser.add_argument("--report", default=None, help="把报告写到 JSON 文件")
+    parser.add_argument("--report", default=None, help="把原始结果写到 JSON 文件")
+    parser.add_argument(
+        "--report-md",
+        nargs="?",
+        const=str(config.OUTPUT_DIR / "finetune" / "eval_report.md"),
+        default=None,
+        help="生成详细 Markdown 报告（不带值时默认写到 outputs/finetune/eval_report.md），"
+        "并在同目录写逐条预测 CSV",
+    )
+    parser.add_argument(
+        "--with-baselines",
+        action="store_true",
+        help="额外评估 keyword/distilled 基线并在报告中对比（最能体现微调增益）",
+    )
+    parser.add_argument("--max-error-samples", type=int, default=30, help="报告里列多少条错例")
     args = parser.parse_args()
 
     if not Path(args.eval_set).exists():
@@ -103,7 +124,34 @@ def main() -> int:
         Path(args.report).write_text(
             json.dumps(report.__dict__, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        print(f"\n报告已写入 {args.report}")
+        print(f"\n原始结果 JSON 已写入 {args.report}")
+
+    if args.report_md:
+        baselines: dict[str, EvalReport] = {}
+        if args.with_baselines:
+            for name in ("distilled", "keyword"):
+                if name == args.predictor:
+                    continue
+                try:
+                    print(f"评估基线 {name} 用于对比…", flush=True)
+                    baselines[name] = evaluate(_build_predictor(name), texts, gold)
+                except Exception as e:  # noqa: BLE001 - 基线不可用就跳过，不阻塞主报告
+                    print(f"  基线 {name} 不可用，跳过：{e}", file=sys.stderr)
+
+        md = build_markdown_report(
+            report,
+            predictor_name=args.predictor,
+            eval_set=args.eval_set,
+            baselines=baselines or None,
+            max_error_samples=args.max_error_samples,
+        )
+        md_path = Path(args.report_md)
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(md, encoding="utf-8")
+        csv_path = md_path.with_suffix(".predictions.csv")
+        write_predictions_csv(csv_path, texts, gold, report)
+        print(f"[报告] 详细 Markdown 报告已写入 {md_path}")
+        print(f"[报告] 逐条预测 CSV 已写入 {csv_path}")
     return 0
 
 

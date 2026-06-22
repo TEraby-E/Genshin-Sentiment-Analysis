@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 场景 B｜云端把微调后的 Qwen 起成 OpenAI 兼容服务（vLLM）
+# 场景 B｜云端把微调后的 Qwen 起成 OpenAI 兼容服务（自包含端点，不依赖 vLLM）
 #
-# 在 AutoDL / RunPod 等 GPU 实例上运行：把基座 + LoRA 适配器加载成一个
-# OpenAI 兼容端点，本地只需把 .env 的 LORA_SERVER_BASE_URL 指过来即可调用。
+# 复用已验证可跑的 LocalLLMClassifier（transformers + peft）做推理，对外暴露
+# /v1/chat/completions。规避 vLLM 与较新 torch/CUDA（如 CUDA 13）的导入期冲突。
 #
 # 前置：
-#   pip install "vllm>=0.5"
-#   # 已在云端 git clone 本项目并跑完 train_lora.sh，产物在 outputs/finetune/...
+#   uv sync --extra finetune --extra serve     # finetune=torch/transformers/peft；serve=fastapi/uvicorn
+#   # 已在云端跑完 train_lora.sh，适配器在 outputs/finetune/qwen2.5-7b-lora
 #
 # 用法：
 #   bash scripts/serve_lora.sh
@@ -20,24 +20,14 @@
 # =============================================================================
 set -euo pipefail
 
-# 国内服务器拉基座权重同样需要走 HF 镜像，避免 Network is unreachable。
+# 国内服务器拉基座权重走 HF 镜像，避免 Network is unreachable。
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-MODEL="${LORA_BASE_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
-ADAPTER="${LORA_ADAPTER_DIR:-outputs/finetune/qwen2.5-7b-lora}"
-SERVED_NAME="${LORA_SERVER_MODEL:-qwen2.5-7b-lora}"
 PORT="${PORT:-8000}"
-API_KEY="${LORA_SERVER_API_KEY:-EMPTY}"
+SERVED_NAME="${LORA_SERVER_MODEL:-qwen2.5-7b-lora}"
 
-# 7B 以 bf16 起服务约需 ~16GB 显存，单张 4090(24G) 富余；
-# 若显存吃紧，追加：--quantization bitsandbytes --load-format bitsandbytes
-vllm serve "${MODEL}" \
-    --enable-lora \
-    --lora-modules "${SERVED_NAME}=${ADAPTER}" \
-    --max-lora-rank 8 \
-    --max-model-len 4096 \
+uv run python -m src.finetune.serve \
+    --host "${HOST:-0.0.0.0}" \
     --port "${PORT}" \
-    --api-key "${API_KEY}"
-
-echo "✅ 服务已启动：base_url=http://<本机或隧道地址>:${PORT}/v1，model='${SERVED_NAME}'"
-echo "   本地 .env 配置：LORA_SERVER_BASE_URL / LORA_SERVER_MODEL / LORA_SERVER_API_KEY"
+    --served-model "${SERVED_NAME}"

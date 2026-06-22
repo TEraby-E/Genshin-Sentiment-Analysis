@@ -255,3 +255,37 @@ class LocalLLMClassifier:
             if i == 1 or i % step == 0 or i == n:
                 logger.info("LoRA 推理进度 %d/%d", i, n)
         return out
+
+    def generate_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_new_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        """对任意 chat 消息做一次原始文本生成（供 OpenAI 兼容端点复用）。
+
+        与 predict 不同，这里不做情感标签解析，原样返回模型生成的文本，
+        因此能服务任意系统/用户提示（如路由的批量打标提示），等价于 vLLM 的
+        /v1/chat/completions 之于本模型。
+        """
+        if self._model is None or self._tokenizer is None:
+            self.load()
+        import torch
+
+        prompt = self._tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
+        do_sample = temperature is not None and temperature > 0
+        gen_kwargs: dict[str, Any] = {
+            "max_new_tokens": max_new_tokens or self.max_new_tokens,
+            "do_sample": do_sample,
+        }
+        if do_sample:
+            gen_kwargs["temperature"] = float(temperature)
+        with torch.no_grad():
+            gen = self._model.generate(**inputs, **gen_kwargs)
+        return self._tokenizer.decode(
+            gen[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
+        )

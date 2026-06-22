@@ -20,7 +20,14 @@ from .dataset_formatter import (
     to_alpaca_records,
     write_jsonl,
 )
-from .evaluate import EvalReport, evaluate, find_error_cases, load_eval_set
+from .evaluate import (
+    EvalReport,
+    build_markdown_report,
+    evaluate,
+    find_error_cases,
+    load_eval_set,
+    write_predictions_csv,
+)
 
 __all__ = [
     "INSTRUCTION",
@@ -31,6 +38,8 @@ __all__ = [
     "write_jsonl",
     "EvalReport",
     "evaluate",
+    "build_markdown_report",
     "find_error_cases",
     "load_eval_set",
+    "write_predictions_csv",
 ]

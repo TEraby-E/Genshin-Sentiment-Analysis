@@ -74,8 +74,8 @@ app 镜像是 CPU 版，含看板、DeepSeek 打标与离线 RAG；`data/` 与 `
 
 笔记本无 GPU，本地 LoRA 大模型这条轨道由外部 GPU 容器提供、本地远程调用，不在本机加载 7B 权重：
 
-- **远程云 GPU（推荐）**：在 AutoDL / RunPod 上微调并用 vLLM 起服务，再用 cloudflared / ngrok 映射公网地址，本地只需在 `.env` 填 `LORA_SERVER_BASE_URL=https://xxxx.trycloudflare.com/v1`。
-- **自有 GPU 主机**：`docker compose --profile gpu up lora-server` 用本仓库的 vLLM 服务起端点，同机时本地 app 用 `LORA_SERVER_BASE_URL=http://lora-server:8000/v1` 直连。
+- **远程云 GPU（推荐）**：在 AutoDL / RunPod 上微调，再用自包含的 FastAPI 端点（`bash scripts/serve_lora.sh`，不依赖 vLLM）起服务，用 cloudflared / ngrok 映射公网地址，本地只需在 `.env` 填 `LORA_SERVER_BASE_URL=https://xxxx.trycloudflare.com/v1`。
+- **自有 GPU 主机**：在该主机上 `uv sync --extra finetune --extra serve` 后 `bash scripts/serve_lora.sh` 起端点，本地用 `LORA_SERVER_BASE_URL=http://<主机IP>:8000/v1` 直连。
 
 接好后本地一行代码都不用改，智能路由会自动多出 `lora_server` 轨道。云端部署的逐步命令见 [docs/CLOUD_LORA.md](docs/CLOUD_LORA.md)。
 
