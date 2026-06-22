@@ -1,8 +1,7 @@
 [project]
 name = "genshin-sentiment-analysis"
 version = "0.1.0"
-description = "原神 B 站玩家生态与舆情分析 —— 端到端数据分析项目"
-readme = "README.md"
+description = "原神 B 站舆情智能路由打标 —— 多模型路由 Agent + 本地 LoRA 微调"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
@@ -24,11 +23,6 @@ dependencies = [
 llm = [
     "openai>=1.0",
     "python-dotenv>=1.0",
-]
-# 可选依赖：生成展示用的词云图（scripts/make_wordcloud.py）
-report = [
-    "wordcloud>=1.9",
-    "jieba>=0.42",
 ]
 # 可选依赖：内部工具看板（dashboard.py）
 dashboard = [
@@ -62,10 +56,6 @@ dev = [
     "pandas-stubs>=2.0",
 ]
 
-[project.scripts]
-# 安装后可直接用 `genshin-analyze` 命令运行完整分析
-genshin-analyze = "src.main:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -87,8 +77,3 @@ testpaths = ["tests"]
 python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-# matplotlib 与 pandas-stubs 的数组类型交互噪声较多，绘图模块单独放宽
-module = "src.visualize"
-ignore_errors = true

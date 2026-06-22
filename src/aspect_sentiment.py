@@ -40,7 +40,7 @@ def aspect_breakdown(comments: pd.DataFrame, text_column: str = "Comment_Content
     exploded = df.explode("aspects").dropna(subset=["aspects"])
 
     if "is_neg" not in exploded.columns:
-        raise KeyError("需要先在评论数据上计算 is_neg 列（参见 analysis.sentiment_trend）")
+        raise KeyError("需要先在评论数据上计算 is_neg 列（0/1 标记是否负面）")
 
     summary = exploded.groupby("aspects").agg(
         mentions=("is_neg", "size"), neg_rate=("is_neg", "mean")
