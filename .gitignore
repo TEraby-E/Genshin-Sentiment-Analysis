@@ -19,8 +19,16 @@ outputs/*.png
 .env
 *.key
 
-# 训练好的模型权重（运行时产物，可由 train_sentiment.py 重新生成）
+# 训练好的轻量模型（运行时产物，可由 train_sentiment.py 重新生成）
 *.joblib
+
+# LoRA 训练的中间产物：优化器/调度器状态等，体积大且无需入库（只保留根目录的最终适配器）
+outputs/finetune/**/checkpoint-*/
+outputs/finetune/**/optimizer.pt
+outputs/finetune/**/scheduler.pt
+outputs/finetune/**/rng_state*.pth
+outputs/finetune/**/trainer_state.json
+outputs/finetune/**/global_step*/
 
 # 系统
 .DS_Store
