@@ -16,7 +16,10 @@ def test_load_genshin_sentiment_jsonl_parses_outputs(tmp_path):
                     {
                         "instruction": "x",
                         "input": "剧情很好",
-                        "output": json.dumps({"sentiment": "正面", "aspects": ["剧情"]}, ensure_ascii=False),
+                        "output": json.dumps(
+                            {"sentiment": "正面", "aspects": ["剧情"]},
+                            ensure_ascii=False,
+                        ),
                     },
                     ensure_ascii=False,
                 ),
@@ -24,7 +27,10 @@ def test_load_genshin_sentiment_jsonl_parses_outputs(tmp_path):
                     {
                         "instruction": "x",
                         "input": "抽卡又歪了",
-                        "output": json.dumps({"sentiment": "负面", "aspects": ["抽卡", "运营"]}, ensure_ascii=False),
+                        "output": json.dumps(
+                            {"sentiment": "负面", "aspects": ["抽卡", "运营"]},
+                            ensure_ascii=False,
+                        ),
                     },
                     ensure_ascii=False,
                 ),

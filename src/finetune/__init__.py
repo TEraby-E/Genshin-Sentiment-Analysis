@@ -12,6 +12,13 @@
 
 from __future__ import annotations
 
+from .analysis import (
+    AspectSummaryRow,
+    DEFAULT_DATASET_PATH,
+    SentimentDatasetReport,
+    build_sentiment_dataset_report,
+    load_genshin_sentiment_jsonl,
+)
 from .dataset_formatter import (
     INSTRUCTION,
     format_dataset,
@@ -19,13 +26,6 @@ from .dataset_formatter import (
     split_records,
     to_alpaca_records,
     write_jsonl,
-)
-from .analysis import (
-    AspectSummaryRow,
-    DEFAULT_DATASET_PATH,
-    SentimentDatasetReport,
-    build_sentiment_dataset_report,
-    load_genshin_sentiment_jsonl,
 )
 from .evaluate import (
     EvalReport,

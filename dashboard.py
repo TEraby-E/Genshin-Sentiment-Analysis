@@ -155,12 +155,19 @@ else:
         "negative_contribution_share",
         "delta_vs_overall",
     ]
-    detail_df = dataset_report.aspect_frame()[detail_cols].copy() if not dataset_report.aspect_frame().empty else pd.DataFrame(columns=detail_cols)
+    aspect_frame = dataset_report.aspect_frame()
+    detail_df = (
+        aspect_frame[detail_cols].copy()
+        if not aspect_frame.empty
+        else pd.DataFrame(columns=detail_cols)
+    )
     if not detail_df.empty:
         detail_df["coverage_rate"] = detail_df["coverage_rate"].map(_pct)
         detail_df["negative_rate"] = detail_df["negative_rate"].map(_pct)
         detail_df["negative_share_of_dataset"] = detail_df["negative_share_of_dataset"].map(_pct)
-        detail_df["negative_contribution_share"] = detail_df["negative_contribution_share"].map(_pct)
+        detail_df["negative_contribution_share"] = detail_df[
+            "negative_contribution_share"
+        ].map(_pct)
         detail_df["delta_vs_overall"] = detail_df["delta_vs_overall"].map(_pct)
     st.dataframe(detail_df, width="stretch", hide_index=True)
 

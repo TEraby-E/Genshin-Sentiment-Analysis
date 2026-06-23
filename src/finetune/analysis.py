@@ -123,7 +123,9 @@ def build_sentiment_dataset_report(frame: pd.DataFrame) -> SentimentDatasetRepor
         for label in config.LLM_SENTIMENT_LABELS
     }
     negative_count = int(sentiment_counts.get("负面", 0))
-    multi_aspect_rate = float((frame["aspect_count"] > 1).mean()) if "aspect_count" in frame else 0.0
+    multi_aspect_rate = (
+        float((frame["aspect_count"] > 1).mean()) if "aspect_count" in frame else 0.0
+    )
 
     exploded = frame.explode("aspects").dropna(subset=["aspects"]).copy()
     if exploded.empty:
@@ -194,9 +196,18 @@ def build_sentiment_dataset_report(frame: pd.DataFrame) -> SentimentDatasetRepor
         f"风险最高的是「{top_risk.aspect}」。"
     )
     insights = [
-        f"整体情绪结构：正面 {sentiment_rates['正面']:.1%}，中性 {sentiment_rates['中性']:.1%}，负面 {sentiment_rates['负面']:.1%}。",
-        f"风险强度最高的是「{top_risk.aspect}」，方面内负面率 {top_risk.negative_rate:.1%}，较整体高 {top_risk.delta_vs_overall:+.1%}。",
-        f"负面体量最多的是「{top_volume.aspect}」，负面样本占全样本 {top_volume.negative_share_of_dataset:.1%}。",
+        (
+            f"整体情绪结构：正面 {sentiment_rates['正面']:.1%}，"
+            f"中性 {sentiment_rates['中性']:.1%}，负面 {sentiment_rates['负面']:.1%}。"
+        ),
+        (
+            f"风险强度最高的是「{top_risk.aspect}」，方面内负面率 "
+            f"{top_risk.negative_rate:.1%}，较整体高 {top_risk.delta_vs_overall:+.1%}。"
+        ),
+        (
+            f"负面体量最多的是「{top_volume.aspect}」，负面样本占全样本 "
+            f"{top_volume.negative_share_of_dataset:.1%}。"
+        ),
         f"覆盖面最广的是「{top_coverage.aspect}」，评论提及率 {top_coverage.coverage_rate:.1%}。",
     ]
 
