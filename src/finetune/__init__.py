@@ -20,6 +20,13 @@ from .dataset_formatter import (
     to_alpaca_records,
     write_jsonl,
 )
+from .analysis import (
+    AspectSummaryRow,
+    DEFAULT_DATASET_PATH,
+    SentimentDatasetReport,
+    build_sentiment_dataset_report,
+    load_genshin_sentiment_jsonl,
+)
 from .evaluate import (
     EvalReport,
     build_markdown_report,
@@ -36,6 +43,11 @@ __all__ = [
     "split_records",
     "to_alpaca_records",
     "write_jsonl",
+    "AspectSummaryRow",
+    "DEFAULT_DATASET_PATH",
+    "SentimentDatasetReport",
+    "build_sentiment_dataset_report",
+    "load_genshin_sentiment_jsonl",
     "EvalReport",
     "evaluate",
     "build_markdown_report",

@@ -21,6 +21,11 @@ import pandas as pd
 import streamlit as st
 
 from src import sample_data
+from src.finetune import (
+    DEFAULT_DATASET_PATH,
+    build_sentiment_dataset_report,
+    load_genshin_sentiment_jsonl,
+)
 
 st.set_page_config(page_title="原神舆情 · 智能路由打标", layout="wide", page_icon="🧭")
 
@@ -80,6 +85,93 @@ st.sidebar.markdown(
 
 st.title("原神舆情 · 智能路由打标")
 st.caption("喂入评论文本 → 路由 Agent 自动选模型打标 → 可视化情感分布与算力分配。")
+
+
+@st.cache_data(show_spinner="读取 genshin_sentiment.jsonl 并生成分析报告…")
+def get_dataset_report(path: str):
+    frame = load_genshin_sentiment_jsonl(path)
+    return frame, build_sentiment_dataset_report(frame)
+
+
+def _pct(value: float) -> str:
+    return f"{value:.1%}"
+
+
+st.divider()
+st.subheader("数据集分析")
+st.caption(f"默认分析文件：{DEFAULT_DATASET_PATH}")
+
+dataset_path = st.text_input("分析文件路径", value=str(DEFAULT_DATASET_PATH))
+try:
+    dataset_frame, dataset_report = get_dataset_report(dataset_path)
+except Exception as exc:  # noqa: BLE001
+    st.error(f"无法读取数据集：{exc}")
+else:
+    dm1, dm2, dm3, dm4 = st.columns(4)
+    dm1.metric("样本数", dataset_report.n_comments)
+    dm2.metric("负面占比", _pct(dataset_report.negative_rate))
+    dm3.metric("复合主题占比", _pct(dataset_report.multi_aspect_rate))
+    dm4.metric("负面样本数", dataset_report.negative_count)
+
+    st.info(dataset_report.overall)
+    for insight in dataset_report.insights:
+        st.write(f"- {insight}")
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("情感结构")
+        sent_df = pd.DataFrame(
+            {
+                "sentiment": list(dataset_report.sentiment_counts.keys()),
+                "count": list(dataset_report.sentiment_counts.values()),
+            }
+        ).set_index("sentiment")
+        st.bar_chart(sent_df)
+        st.caption(
+            "正面 {} · 中性 {} · 负面 {}".format(
+                int(dataset_report.sentiment_counts.get("正面", 0)),
+                int(dataset_report.sentiment_counts.get("中性", 0)),
+                int(dataset_report.sentiment_counts.get("负面", 0)),
+            )
+        )
+
+    with right:
+        st.subheader("方面负面率排行")
+        aspect_df = dataset_report.aspect_frame()
+        if not aspect_df.empty:
+            st.bar_chart(
+                aspect_df.set_index("aspect")["negative_rate"].sort_values(ascending=False)
+            )
+        st.caption("按方面内负面率排序，越高代表该主题越容易引发负面评论。")
+
+    st.subheader("方面分析明细")
+    detail_cols = [
+        "aspect",
+        "mentions",
+        "coverage_rate",
+        "negative_mentions",
+        "negative_rate",
+        "negative_share_of_dataset",
+        "negative_contribution_share",
+        "delta_vs_overall",
+    ]
+    detail_df = dataset_report.aspect_frame()[detail_cols].copy() if not dataset_report.aspect_frame().empty else pd.DataFrame(columns=detail_cols)
+    if not detail_df.empty:
+        detail_df["coverage_rate"] = detail_df["coverage_rate"].map(_pct)
+        detail_df["negative_rate"] = detail_df["negative_rate"].map(_pct)
+        detail_df["negative_share_of_dataset"] = detail_df["negative_share_of_dataset"].map(_pct)
+        detail_df["negative_contribution_share"] = detail_df["negative_contribution_share"].map(_pct)
+        detail_df["delta_vs_overall"] = detail_df["delta_vs_overall"].map(_pct)
+    st.dataframe(detail_df, width="stretch", hide_index=True)
+
+    st.subheader("方面 × 情感分布")
+    if not dataset_report.sentiment_mix.empty:
+        pivot = dataset_report.sentiment_mix.pivot_table(
+            index="aspect", columns="sentiment", values="count", fill_value=0
+        )
+        st.bar_chart(pivot)
+    else:
+        st.info("没有可用于绘图的方面标签。")
 
 
 # ---- 输入：手动粘贴 or 上传 CSV ----
