@@ -57,7 +57,7 @@ except ImportError:
 
 LLM_API_KEY_ENV = "DEEPSEEK_API_KEY"
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
-# 默认模型用官方现存的 deepseek-v4-pro（旧的 deepseek-chat 已不在 API 模型列表中）
+# 默认模型可通过环境变量覆盖；DeepSeek/OpenAI 兼容服务的模型名会随服务端更新。
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-pro")
 # 单次请求打包的评论条数：越大越省 token，但要给模型留出输出空间
 LLM_BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "20"))

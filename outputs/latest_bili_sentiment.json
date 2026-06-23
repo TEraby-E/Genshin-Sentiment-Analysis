@@ -1,0 +1,22 @@
+{
+  "n_comments": 1,
+  "sentiment_counts": {
+    "正面": 1
+  },
+  "sentiment_rates": {
+    "正面": 1.0,
+    "中性": 0.0,
+    "负面": 0.0
+  },
+  "aspect_counts": {
+    "活动": 1,
+    "社交与同人": 1
+  },
+  "route_counts": {
+    "rag_llm": 1
+  },
+  "n_escalated": 0,
+  "n_verified": 1,
+  "negative_examples": [],
+  "overall": "近期整体舆情相对平稳，讨论焦点主要是「活动」。"
+}

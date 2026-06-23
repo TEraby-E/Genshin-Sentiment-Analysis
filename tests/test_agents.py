@@ -63,6 +63,19 @@ def test_verify_failure_escalates_up_cost_ladder(make_fake_track):
     assert r.last_stats["n_escalated"] == 1
 
 
+def test_verify_failure_can_escalate_to_top_track_by_default(make_fake_track):
+    # 默认 max_escalations=None 时，应允许从最低档一路升到最高可用轨道。
+    kw = make_fake_track("keyword", 0, sentiment_fn=lambda _t: "正面")
+    distilled = make_fake_track("distilled", 1, sentiment_fn=lambda _t: "正面")
+    lora = make_fake_track("lora", 2, sentiment_fn=lambda _t: "正面")
+    llm = make_fake_track("rag_llm", 3, sentiment_fn=lambda _t: "负面")
+    r = _router([kw, distilled, lora, llm], verifier=HeuristicVerifier())
+    out = r.tag(["这游戏真垃圾，烂透了"])
+    assert out[0].track == "rag_llm"
+    assert out[0].escalations == 3
+    assert r.last_stats["n_escalated"] == 3
+
+
 def test_no_escalation_when_top_track_still_fails(make_fake_track):
     # 只有 keyword 可用且判错：无更高档可升，按最终结果落地（不崩、不死循环）
     kw = make_fake_track("keyword", 0, sentiment_fn=lambda _t: "正面")
@@ -122,9 +135,11 @@ class _FakeClient:
         self.chat = self
         self.completions = self
         self.last_system = None
+        self.systems = []
 
     def create(self, **kwargs):
         self.last_system = kwargs["messages"][0]["content"]
+        self.systems.append(self.last_system)
         return _FakeResp(self._content)
 
 
@@ -137,6 +152,21 @@ def test_rag_llm_track_available_with_injected_client_and_injects_evidence(rag_r
     assert out[0].sentiment == "负面"
     assert out[0].track == "rag_llm"
     assert "黑话" in client.last_system  # RAG 证据已注入系统提示
+
+
+def test_rag_llm_track_uses_per_comment_evidence_groups(rag_retriever):
+    payload = (
+        '{"results": ['
+        '{"id": 0, "sentiment": "负面", "aspects": ["抽卡"], "reason": "x"}'
+        "]}"
+    )
+    client = _FakeClient(payload)
+    track = RagLLMTrack(client=client, retriever=rag_retriever)
+    out = track.classify(["这次又歪了", "剧情真好"])
+    assert len(out) == 2
+    assert len(client.systems) == 2
+    assert any("歪了" in system for system in client.systems)
+    assert any("黑话" not in system for system in client.systems)
 
 
 def test_keyword_track_always_available_offline():

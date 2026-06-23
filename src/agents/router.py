@@ -3,9 +3,9 @@
 
 设计要点：
 - 路由是「算力分配器」：先用零成本的离线难度画像（黑话 / 反讽 / 长度）判断该花多少算力；
-  容易的评论走便宜轨道（关键词 / 蒸馏），难的直接起步于语义轨道（LoRA / RAG-DeepSeek）。
+  容易的评论走便宜轨道（关键词 / 蒸馏），难的直接起步于语义轨道（LoRA / RAG-LLM）。
 - 三角即「按需投入」：只有进入语义轨道的评论才会触发「检索证据 → LLM 推理 → critic 校验」；
-  校验不通过就升一档重判（keyword→distilled→lora→rag_llm），直到通过或阶梯到顶。
+  校验不通过就升一档重判（keyword→distilled→lora→rag_llm），默认允许升到阶梯顶。
 - 环境自适应：不可用的轨道（无 API / 无 GPU / 无模型）被自动过滤，离线时优雅退化到
   关键词 / 蒸馏，绝不崩溃，CI 无需任何外部资源。
 """
@@ -40,7 +40,7 @@ class RouterAgent:
         *,
         verifier: Verifier | None = None,
         retriever: Any | None = None,
-        max_escalations: int = 2,
+        max_escalations: int | None = None,
     ) -> None:
         # 只保留可用轨道，并按成本升序排成升级阶梯
         avail = [t for t in tracks if t.is_available()]
@@ -50,7 +50,9 @@ class RouterAgent:
         self._by_name = {t.name: t for t in self.ladder}
         self.verifier = verifier or HeuristicVerifier()
         self.retriever = retriever
-        self.max_escalations = max_escalations
+        self.max_escalations = (
+            max(0, len(self.ladder) - 1) if max_escalations is None else max_escalations
+        )
         self.last_stats: dict[str, Any] = {}
 
     @classmethod
@@ -62,7 +64,7 @@ class RouterAgent:
         verifier: Verifier | None = None,
         distilled_path: Any | None = None,
         lora_adapter: Any | None = None,
-        max_escalations: int = 2,
+        max_escalations: int | None = None,
     ) -> RouterAgent:
         """按当前环境自动组装可用轨道并构建路由（看板 / 脚本一行即用）。"""
         tracks = build_default_tracks(
@@ -140,13 +142,13 @@ class RouterAgent:
                 outs = track.classify(batch)
                 for (idx, text, cur, esc), res in zip(items, outs):
                     res.track = name
-                    res.escalations = esc
                     evidence = self._evidence(text)
                     verdict = self.verifier.verify(res, evidence=evidence)
                     res.confidence = verdict.confidence
                     higher = self._next_track(cur)
                     can_escalate = higher is not None and esc < self.max_escalations
                     if verdict.ok or not can_escalate:
+                        res.escalations = esc
                         res.verified = verdict.ok
                         # 终判仍不可信且 critic 给了纠正，采纳纠正并记录
                         if not verdict.ok and verdict.corrected_sentiment:

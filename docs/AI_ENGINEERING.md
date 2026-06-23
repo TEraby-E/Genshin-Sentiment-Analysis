@@ -7,7 +7,7 @@
 
 - 通过 **OpenAI 兼容协议**接入 DeepSeek：复用官方 `openai` SDK，仅替换 `base_url` 与 `api_key`，即可在任意 OpenAI 兼容服务间一键切换（`src/llm_client.py`、`src/config.py`）。
 - 模型、base_url、batch、温度等全部走环境变量/`.env`，**密钥从不写进代码**，`.env` 入 `.gitignore`（`src/config.py` 在读取配置前 `load_dotenv`）。
-- 运行时用 `/models` 接口核实模型 id 与官方一致（默认 `deepseek-v4-pro`）。
+- 默认模型名走 `LLM_MODEL` 环境变量配置；未配置时使用项目默认值，便于在 DeepSeek 或其他 OpenAI 兼容服务间切换。
 
 ## 2. 结构化输出（Structured Output / JSON Mode）
 
@@ -29,7 +29,7 @@
 
 - **指数退避重试**：网络抖动、限流、偶发非法 JSON 统一重试，超限才抛出（`llm_client.chat_json`）。
 - **单批失败隔离**：批量打标时某一批失败只兜底该批为中性/其他，不让整个 40 万条流程崩溃（`text_pipeline.classify_with_llm`）。
-- **优雅降级**：抓取被风控/无网时回退演示数据；词云缺 wordcloud/字体时降级为 HTML 关键词云；API 未配置时明确报错而非静默退化为关键词规则。
+- **优雅降级**：缺少 API、GPU、模型文件或 RAG 语料时，对应轨道会被跳过或回退到离线能力；API 未配置时给出明确报错而非静默伪装成高阶语义能力。
 
 ## 6. 成本控制
 
@@ -38,7 +38,7 @@
 
 ## 7. 数据驱动的模型选型
 
-- 用关键词基线在 40.8 万条真实评论上实测**覆盖率仅 18.2%**，量化证明关键词规则的盲区，以此驱动「引入 LLM 语义打标」的决策——而非凭直觉（`aspect_sentiment.agreement_with_cluster`、`scripts/keyword_vs_ai.py`）。
+- 用关键词基线在评论样本上计算方面标签覆盖率，量化证明关键词规则的盲区，以此驱动「引入 LLM 语义打标」的决策——而非凭直觉（`aspect_sentiment.agreement_with_cluster`）。
 
 ## 8. LLM 作为标注者 + 知识蒸馏（Knowledge Distillation）
 
@@ -48,11 +48,10 @@
 ## 9. LLM 作为分析者（Map → Reduce 式语义聚合）
 
 - 把一批离散评论/标题**归纳**成结构化结论：舆情总结（议题/占比/代表性原声/运营建议）、爆点选题总结（套路/关键词/建议）（`text_pipeline.summarize_opinions` / `summarize_hits`）。
-- AI 提炼的关键词反哺词云：对其在词频里**加权放大**，让词云突出语义议题词而非高频口水词（`src/wordcloud_gen.py`）。
 
 ## 10. 可复用与可验证
 
-- AI 能力封装成可复用模块（`llm_client` / `text_pipeline` / `sentiment_train` / `wordcloud_gen`），CLI 与 Streamlit 看板共用。
+- AI 能力封装成可复用模块（`llm_client` / `text_pipeline` / `sentiment_train` / `agents`），CLI 与 Streamlit 看板共用。
 - **测试不触网**：用 fake client / fake session 注入模拟 API 返回，合成数据训练学生模型，CI 无需密钥或网络即可全部跑通。
 
 ## 11. 检索增强生成（RAG）：领域知识接地，对抗黑话误判
@@ -62,7 +61,7 @@
 - **分层嵌入**：默认确定性特征哈希嵌入（无模型/无外网/无 GPU），可选 `sentence-transformers` 语义嵌入（`src/rag/embeddings.py`）；嵌入函数抽象成最小协议，便于测试注入「假嵌入」。
 - **混合检索（Hybrid Retrieval）**：稠密向量召回 + 稀疏 BM25 召回，min-max 归一化后加权融合（`alpha` 调偏重），兼顾近义梗与低频专有词（`src/rag/retriever.py`）。
 - **异步语料构建**：把评论聚类关键词、官方动态正文、高赞 UGC 评论切块并发嵌入，构建「梗 & 设定词典」（`src/rag/ingestion.py`）。
-- **无侵入注入**：`analyze_comments(..., retriever=)` 在送 LLM 前拦截评论中的黑话、检索释义并注入 system prompt；不传 `retriever` 时与原链路行为完全一致（`text_pipeline.detect_jargon` / `build_jargon_context`）。
+- **无侵入注入**：`analyze_comments(..., retriever=)` 在送 LLM 前拦截评论中的黑话、检索释义并注入 system prompt；`RagLLMTrack` 会按单条评论构造 RAG 上下文，再把上下文相同的评论分组批量调用，避免整批共享无关证据；不传 `retriever` 时与原链路行为完全一致（`text_pipeline.detect_jargon` / `build_jargon_context`）。
 
 ## 12. 本地 LLM LoRA 微调（QLoRA）
 
@@ -73,8 +72,8 @@
 
 ## 13. 智能路由 / 多轨道编排 Agent（Router + 检索-推理-校验三角）
 
-- **路由即算力分配器**：把四条打标能力（关键词 / 蒸馏 / 本地 LoRA / RAG-DeepSeek）统一成可调度的「轨道」（`src/agents/tracks.py`），`RouterAgent` 先用零成本的离线难度画像（黑话数 / 反讽标记 / 长度）判断该投多少算力——容易的评论走便宜轨道，难句直接起步于语义轨道（`src/agents/router.py`）。
-- **检索-推理-校验三角（compute allocation strategy）**：进入语义轨道的评论触发「检索证据（RAG）→ LLM 推理 → critic 校验」；校验不通过则沿成本阶梯升一档重判（keyword→distilled→lora→rag_llm），把贵算力**只花在 critic 认为值得的样本上**。
+- **路由即算力分配器**：把四条打标能力（关键词 / 蒸馏 / 本地 LoRA / RAG-LLM）统一成可调度的「轨道」（`src/agents/tracks.py`），`RouterAgent` 先用零成本的离线难度画像（黑话数 / 反讽标记 / 长度）判断该投多少算力——容易的评论走便宜轨道，难句直接起步于语义轨道（`src/agents/router.py`）。
+- **检索-推理-校验三角（compute allocation strategy）**：进入语义轨道的评论触发「检索证据（RAG）→ LLM 推理 → critic 校验」；校验不通过则沿成本阶梯升一档重判（keyword→distilled→lora→rag_llm），默认允许升到当前环境可用的最高档，把贵算力**只花在 critic 认为值得的样本上**。
 - **critic 双档**：默认 `HeuristicVerifier`（词典极性冲突检测 + 完整性，零成本、确定性），可选 `LLMVerifier`（LLM 评审员，准但有成本）（`src/agents/verifier.py`）；硬冲突（字面强烈一极、判定相反）直接打回并给出纠正。
 - **环境自适应 + 批量分组**：不可用轨道（无 API / 无 GPU / 无模型）被自动过滤，离线时优雅退化到关键词 / 蒸馏；同轨道评论分组批量调用以摊薄 token。整套逻辑用 fake 轨道 + fake client 全覆盖，CI 无任何外部资源即可验证路由/升档/校验。
 

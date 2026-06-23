@@ -2,7 +2,7 @@
 
 每条轨道实现同一个 TaggingTrack 接口（name / cost / is_available / classify），
 路由因此可以「按需选档、失败升档」，而不关心各轨道内部是关键词、sklearn、
-DeepSeek 还是本地 LoRA 大模型。所有重依赖都延迟导入，未配置的轨道 is_available()
+OpenAI 兼容 API 还是本地 LoRA 大模型。所有重依赖都延迟导入，未配置的轨道 is_available()
 返回 False，被路由直接跳过——保证离线 / 无 GPU / 无 API 的环境也能跑通。
 
 成本档位（cost）由低到高构成升级阶梯：
@@ -134,31 +134,52 @@ def _classify_via_openai(
     track_name: str,
     confidence: float,
 ) -> list[TagResult]:
-    """走 OpenAI 兼容接口（DeepSeek）做语义打标的共用实现。
+    """走 OpenAI 兼容接口做语义打标的共用实现。
 
-    若给了 retriever，则先检索评论里黑话的释义注入系统提示，对抗按字面误判。
+    若给了 retriever，则按单条评论检索黑话释义，再把上下文相同的评论分组批量调用。
+    这样既保留批处理，又避免整批评论共享无关黑话证据。
     """
     from .. import text_pipeline
 
-    extra_context: str | None = None
-    if retriever is not None:
-        extra_context = text_pipeline.build_jargon_context(texts, retriever) or None
-    preds = text_pipeline.classify_with_llm(texts, client=client, extra_context=extra_context)
-    return [
-        TagResult(
-            text=t,
-            sentiment=p["sentiment"],
-            aspects=list(p["aspects"]),
-            reason=str(p.get("reason", "")),
-            confidence=confidence,  # 自报置信，交由校验者复核后再定稿
-            track=track_name,
+    contexts: list[str | None] = []
+    for text in texts:
+        if retriever is None:
+            contexts.append(None)
+        else:
+            contexts.append(text_pipeline.build_jargon_context([text], retriever) or None)
+
+    preds: list[dict[str, Any] | None] = [None] * len(texts)
+    grouped: dict[str | None, list[tuple[int, str]]] = {}
+    for i, (text, context) in enumerate(zip(texts, contexts)):
+        grouped.setdefault(context, []).append((i, text))
+
+    for context, items in grouped.items():
+        batch = [text for _, text in items]
+        batch_preds = text_pipeline.classify_with_llm(
+            batch, client=client, extra_context=context
         )
-        for t, p in zip(texts, preds)
-    ]
+        for (idx, _), pred in zip(items, batch_preds):
+            preds[idx] = pred
+
+    out: list[TagResult] = []
+    for text, pred in zip(texts, preds):
+        if pred is None:
+            pred = {"sentiment": "中性", "aspects": ["其他"], "reason": "LLM 结果缺失，兜底"}
+        out.append(
+            TagResult(
+                text=text,
+                sentiment=str(pred["sentiment"]),
+                aspects=list(pred["aspects"]),
+                reason=str(pred.get("reason", "")),
+                confidence=confidence,  # 自报置信，交由校验者复核后再定稿
+                track=track_name,
+            )
+        )
+    return out
 
 
 class RagLLMTrack:
-    """RAG + DeepSeek 轨道：检索黑话释义注入系统提示后做语义打标（三角的「检索→推理」）。"""
+    """RAG + LLM 轨道：检索黑话释义注入系统提示后做语义打标（三角的「检索→推理」）。"""
 
     name = "rag_llm"
     cost = 3
