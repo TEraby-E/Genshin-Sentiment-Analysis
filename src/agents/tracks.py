@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .. import aspect_sentiment
 from .base import TaggingTrack, TagResult, lexicon_polarity
@@ -164,7 +164,10 @@ def _classify_via_openai(
     out: list[TagResult] = []
     for text, pred in zip(texts, preds):
         if pred is None:
-            pred = {"sentiment": "中性", "aspects": ["其他"], "reason": "LLM 结果缺失，兜底"}
+            pred = cast(
+                dict[str, Any],
+                {"sentiment": "中性", "aspects": ["其他"], "reason": "LLM 结果缺失，兜底"},
+            )
         out.append(
             TagResult(
                 text=text,
