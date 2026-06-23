@@ -10,7 +10,7 @@
 - **本地 LoRA 微调（QLoRA）**：把高置信的大模型标注转成 alpaca JSONL，用 4-bit QLoRA 在消费级 GPU 上微调 Qwen2.5-7B，得到比 TF-IDF 更懂语义和黑话、同样离线免 API 的分类器；训练产物（适配器）由 `LocalLLMClassifier` 在进程内加载推理。微调脚本自包含，只用 `transformers + peft + bitsandbytes`，不引入 LLaMA-Factory 那套庞大且带原生库的依赖树，环境更稳。
 - **校验者（critic）**：默认 `HeuristicVerifier` 用情感词典的极性冲突与结果完整性判断，零成本且确定；需要更高把握时可换成 `LLMVerifier`，让大模型直接当评审员。
 - **环境自适应**：拿不到 API、GPU 或模型文件的轨道会被自动跳过，离线时优雅退化到关键词 / 蒸馏，绝不崩溃，CI 无需任何外部资源。
-- **工程规范性**：合成数据 fixture + fake LLM/HTTP client + fake 嵌入，不依赖真实数据、网络或 GPU 即可在 CI 跑通；ruff 静态检查、mypy 类型检查、GitHub Actions CI 全部接入。
+- **工程规范性**：合成数据 fixture + fake LLM/HTTP client + fake 嵌入，不依赖真实数据、网络或 GPU 即可跑通；ruff 静态检查、mypy 类型检查、测试全部接入。
 
 ## 快速开始
 
@@ -31,7 +31,7 @@ print(router.last_stats)  # 各轨道处理量 / 校验通过数 / 升档次数
 ## 环境与运行
 
 ```bash
-# 方案 A：使用 uv（CI 与 uv.lock 采用这套）
+# 方案 A：使用 uv（项目主推荐）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone <your-repo-url>
 cd genshin-sentiment-analysis
@@ -176,10 +176,10 @@ uv run python scripts/eval_lora.py --predictor lora --report-md outputs/finetune
 关键参数：`--report-md [路径]` 触发报告生成（不带值用默认路径）；`--with-baselines` 额外评估 keyword/distilled 基线并在报告中对比（基线模型缺失时自动跳过，不报错）；`--max-error-samples` 控制报告里列出的错例条数（默认 30）。
 
 - `src/finetune/dataset_formatter.py`：把已标注数据筛出高置信样本（情感与方面取值合法、判断依据充分），转成 alpaca JSONL 并生成 `dataset_info.json`，含训练 / 评估切分。
-- `src/finetune/train_lora.py`：自包含 QLoRA，仅对 assistant 回答计损失（prompt 部分 label 置 -100），4-bit 量化 + 梯度检查点 + 分页 8-bit 优化器；重依赖延迟导入，不影响 CI。
+- `src/finetune/train_lora.py`：自包含 QLoRA，仅对 assistant 回答计损失（prompt 部分 label 置 -100），4-bit 量化 + 梯度检查点 + 分页 8-bit 优化器；重依赖延迟导入，不影响其他模块。
 - `src/finetune/evaluate.py`：留出集评估 + 报告渲染（`build_markdown_report` / `write_predictions_csv`）+ 反讽错例分析，驱动针对性补样的增量迭代。
 
-推理由 `sentiment_train.LocalLLMClassifier` 封装，加载量化基座 + LoRA 适配器；transformers / peft / torch 等重依赖全部延迟导入，没装也不影响其它模块和 CI。
+推理由 `sentiment_train.LocalLLMClassifier` 封装，加载量化基座 + LoRA 适配器；transformers / peft / torch 等重依赖全部延迟导入，没装也不影响其它模块。
 
 ## 智能路由编排：按难度分配算力，配合检索-推理-校验三角
 
@@ -196,7 +196,7 @@ uv run ruff check src tests
 uv run mypy src
 ```
 
-测试覆盖数据契约校验、方面级情感、知识蒸馏、RAG 混合检索（fake 嵌入，无 GPU 亦可跑）、LoRA 微调的数据格式化与编码、智能路由编排；均使用 `tests/conftest.py` 中的合成 fixture，CI 中无需访问真实数据、网络或 GPU 即可全部跑通（见 `.github/workflows/ci.yml`）。
+测试覆盖数据契约校验、方面级情感、知识蒸馏、RAG 混合检索（fake 嵌入，无 GPU 亦可跑）、LoRA 微调的数据格式化与编码、智能路由编排；均使用 `tests/conftest.py` 中的合成 fixture，无需访问真实数据、网络或 GPU 即可跑通。
 
 ## 项目结构
 
@@ -234,5 +234,5 @@ genshin-sentiment-analysis/
 - **微调与推理**：transformers、peft、bitsandbytes、accelerate（自包含 QLoRA，不依赖 LLaMA-Factory）；适配器由 `LocalLLMClassifier` 在进程内加载推理，离线、免 API
 - **数据与建模底座**：pandas、numpy、scikit-learn（TF-IDF / 逻辑回归）
 - **可选检索栈**：纯 numpy 内存向量库（默认）/ ChromaDB + sentence-transformers
-- **应用与工程化**：Streamlit、uv（依赖锁定）、pytest、ruff、mypy、GitHub Actions、Docker
+- **应用与工程化**：Streamlit、uv（依赖锁定）、pytest、ruff、mypy、Docker
 ```

@@ -52,12 +52,12 @@
 ## 10. 可复用与可验证
 
 - AI 能力封装成可复用模块（`llm_client` / `text_pipeline` / `sentiment_train` / `agents`），CLI 与 Streamlit 看板共用。
-- **测试不触网**：用 fake client / fake session 注入模拟 API 返回，合成数据训练学生模型，CI 无需密钥或网络即可全部跑通。
+- **测试不触网**：用 fake client / fake session 注入模拟 API 返回，合成数据训练学生模型，无需密钥或网络即可跑通。
 
 ## 11. 检索增强生成（RAG）：领域知识接地，对抗黑话误判
 
 - **问题驱动**：玩家评论充斥社区黑话与时效性梗（「歪了」「保底」「深渊螺旋」「圣遗物词条」），通用模型缺乏社区内生语义，易按字面误判——这是一个典型的「知识接地（grounding）」而非「模型能力」问题，故用 RAG 而非换更大模型来解。
-- **轻量本地向量库**：默认纯 numpy 余弦的内存库（零外部基建、可离线、CI 友好），可选切换 ChromaDB 本地持久化模式（`src/rag/vector_store.py`）。
+- **轻量本地向量库**：默认纯 numpy 余弦的内存库（零外部基建、可离线），可选切换 ChromaDB 本地持久化模式（`src/rag/vector_store.py`）。
 - **分层嵌入**：默认确定性特征哈希嵌入（无模型/无外网/无 GPU），可选 `sentence-transformers` 语义嵌入（`src/rag/embeddings.py`）；嵌入函数抽象成最小协议，便于测试注入「假嵌入」。
 - **混合检索（Hybrid Retrieval）**：稠密向量召回 + 稀疏 BM25 召回，min-max 归一化后加权融合（`alpha` 调偏重），兼顾近义梗与低频专有词（`src/rag/retriever.py`）。
 - **异步语料构建**：把评论聚类关键词、官方动态正文、高赞 UGC 评论切块并发嵌入，构建「梗 & 设定词典」（`src/rag/ingestion.py`）。
@@ -68,14 +68,14 @@
 - **与蒸馏并行的「重」轨道**：把 LLM 标注的高置信数据进一步微调进轻量本地大模型（Qwen2.5-7B），得到比 TF-IDF 更懂语义/黑话、仍离线免 API 的分类器（`src/sentiment_train.LocalLLMClassifier`）。
 - **严格数据契约**：从已标注数据筛高置信样本（合法标签 + 非空依据 + 最小长度），转 alpaca JSONL 并生成 `dataset_info.json`（`src/finetune/dataset_formatter.py`）。
 - **自包含高效训练**：自带最小化 QLoRA 训练脚本（`src/finetune/train_lora.py`，仅用 transformers + peft + bitsandbytes，不依赖 LLaMA-Factory），集成 4-bit 量化、梯度检查点、梯度累积、分页 8-bit 优化器；注意力默认用 torch 自带的 sdpa，装了 flash-attn 才用 FlashAttention-2。`src/finetune/train_lora.sh` 是便捷封装；配套 `scripts/build_finetune_dataset.py` 做分层抽样标注、`scripts/eval_lora.py` 做留出集评估与反讽错例分析，形成评估-迭代闭环。
-- **延迟导入与优雅缺省**：`torch`/`transformers`/`peft` 等重依赖延迟到 `load()` 时导入，`deps_available()` / `is_ready()` 守卫；依赖或适配器缺失时看板给出明确引导而非静默失败——CI 无 GPU 也不受影响。
+- **延迟导入与优雅缺省**：`torch`/`transformers`/`peft` 等重依赖延迟到 `load()` 时导入，`deps_available()` / `is_ready()` 守卫；依赖或适配器缺失时看板给出明确引导而非静默失败。
 
 ## 13. 智能路由 / 多轨道编排 Agent（Router + 检索-推理-校验三角）
 
 - **路由即算力分配器**：把四条打标能力（关键词 / 蒸馏 / 本地 LoRA / RAG-LLM）统一成可调度的「轨道」（`src/agents/tracks.py`），`RouterAgent` 先用零成本的离线难度画像（黑话数 / 反讽标记 / 长度）判断该投多少算力——容易的评论走便宜轨道，难句直接起步于语义轨道（`src/agents/router.py`）。
 - **检索-推理-校验三角（compute allocation strategy）**：进入语义轨道的评论触发「检索证据（RAG）→ LLM 推理 → critic 校验」；校验不通过则沿成本阶梯升一档重判（keyword→distilled→lora→rag_llm），默认允许升到当前环境可用的最高档，把贵算力**只花在 critic 认为值得的样本上**。
 - **critic 双档**：默认 `HeuristicVerifier`（词典极性冲突检测 + 完整性，零成本、确定性），可选 `LLMVerifier`（LLM 评审员，准但有成本）（`src/agents/verifier.py`）；硬冲突（字面强烈一极、判定相反）直接打回并给出纠正。
-- **环境自适应 + 批量分组**：不可用轨道（无 API / 无 GPU / 无模型）被自动过滤，离线时优雅退化到关键词 / 蒸馏；同轨道评论分组批量调用以摊薄 token。整套逻辑用 fake 轨道 + fake client 全覆盖，CI 无任何外部资源即可验证路由/升档/校验。
+- **环境自适应 + 批量分组**：不可用轨道（无 API / 无 GPU / 无模型）被自动过滤，离线时优雅退化到关键词 / 蒸馏；同轨道评论分组批量调用以摊薄 token。整套逻辑用 fake 轨道 + fake client 全覆盖，无需外部资源即可验证路由/升档/校验。
 
 ---
 
